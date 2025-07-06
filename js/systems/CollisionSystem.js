@@ -24,6 +24,10 @@ export class CollisionSystem {
     }
 
     hitBalloon(player, balloon) {
+        // Store original velocity to ensure we always increase speed
+        const originalVelocityY = player.body.velocity.y;
+        const originalVelocityX = player.body.velocity.x;
+        
         // Always add the boost - balloons should always help, never hurt
         player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST;
         
@@ -32,8 +36,16 @@ export class CollisionSystem {
             player.body.velocity.x += Math.sign(player.body.velocity.x) * 50;
         }
 
-        // Always cap velocity after adding boost to prevent extreme speeds
+        // Cap velocity but ensure we never go slower than before the boost
         this.capPlayerVelocity(player);
+        
+        // Safety check: if velocity capping made us slower, restore the boost
+        if (Math.abs(player.body.velocity.y) < Math.abs(originalVelocityY)) {
+            player.body.velocity.y = originalVelocityY + GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST;
+        }
+        if (Math.abs(player.body.velocity.x) < Math.abs(originalVelocityX)) {
+            player.body.velocity.x = originalVelocityX + (Math.sign(originalVelocityX) * 50);
+        }
 
         // Remove from age tracking before destroying
         if (balloon.name) {
@@ -49,14 +61,26 @@ export class CollisionSystem {
     }
 
     hitBird(player, bird) {
+        // Store original velocity to ensure we always increase speed
+        const originalVelocityY = player.body.velocity.y;
+        const originalVelocityX = player.body.velocity.x;
+        
         // Always add the boost - birds should always help, never hurt
         player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BIRD_BOOST;
 
         // Add horizontal momentum in the direction the bird was flying
         player.body.velocity.x += bird.body.velocity.x * 0.5; // Scale down bird's velocity
 
-        // Always cap velocity after adding boost to prevent extreme speeds
+        // Cap velocity but ensure we never go slower than before the boost
         this.capPlayerVelocity(player);
+        
+        // Safety check: if velocity capping made us slower, restore the boost
+        if (Math.abs(player.body.velocity.y) < Math.abs(originalVelocityY)) {
+            player.body.velocity.y = originalVelocityY + GAME_CONSTANTS.OBSTACLES.BIRD_BOOST;
+        }
+        if (Math.abs(player.body.velocity.x) < Math.abs(originalVelocityX)) {
+            player.body.velocity.x = originalVelocityX + (bird.body.velocity.x * 0.5);
+        }
 
         // Remove from age tracking before destroying
         if (bird.name) {

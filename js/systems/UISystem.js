@@ -886,7 +886,7 @@ export class UISystem {
         createRow(startY + (stepY * 2), 'spaceShip');
         createRow(startY + (stepY * 3), 'rocket');
 
-        const closeButton = this.createModernButton(0, 220, 'Close', () => {
+        const closeButton = this.createModernButton(0, 280, 'Close', () => {
             this.upgradeContainer.setVisible(false);
             this.ui.endOfDayContainer.setVisible(true);
         }, 'danger');
