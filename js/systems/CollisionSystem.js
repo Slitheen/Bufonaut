@@ -24,11 +24,7 @@ export class CollisionSystem {
     }
 
     hitBalloon(player, balloon) {
-        // Store original velocity before boost
-        const originalVelocityY = player.body.velocity.y;
-        const originalVelocityX = player.body.velocity.x;
-        
-        // Add upward momentum to current velocity (don't replace it)
+        // Always add the boost - balloons should always help, never hurt
         player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST;
         
         // Also add a small horizontal boost in the direction the player is moving
@@ -36,12 +32,8 @@ export class CollisionSystem {
             player.body.velocity.x += Math.sign(player.body.velocity.x) * 50;
         }
 
-        // Only cap velocity if it would actually increase speed, not reduce it
-        // This prevents high-speed launches from being slowed down by boosts
-        if (Math.abs(player.body.velocity.y) > Math.abs(originalVelocityY) || 
-            Math.abs(player.body.velocity.x) > Math.abs(originalVelocityX)) {
-            this.capPlayerVelocity(player);
-        }
+        // Always cap velocity after adding boost to prevent extreme speeds
+        this.capPlayerVelocity(player);
 
         // Remove from age tracking before destroying
         if (balloon.name) {
@@ -57,22 +49,14 @@ export class CollisionSystem {
     }
 
     hitBird(player, bird) {
-        // Store original velocity before boost
-        const originalVelocityY = player.body.velocity.y;
-        const originalVelocityX = player.body.velocity.x;
-        
-        // Add upward momentum to current velocity
+        // Always add the boost - birds should always help, never hurt
         player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BIRD_BOOST;
 
         // Add horizontal momentum in the direction the bird was flying
         player.body.velocity.x += bird.body.velocity.x * 0.5; // Scale down bird's velocity
 
-        // Only cap velocity if it would actually increase speed, not reduce it
-        // This prevents high-speed launches from being slowed down by boosts
-        if (Math.abs(player.body.velocity.y) > Math.abs(originalVelocityY) || 
-            Math.abs(player.body.velocity.x) > Math.abs(originalVelocityX)) {
-            this.capPlayerVelocity(player);
-        }
+        // Always cap velocity after adding boost to prevent extreme speeds
+        this.capPlayerVelocity(player);
 
         // Remove from age tracking before destroying
         if (bird.name) {

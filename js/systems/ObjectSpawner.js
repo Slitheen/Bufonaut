@@ -199,13 +199,13 @@ export class ObjectSpawner {
         console.log(`Birds group exists: ${this.birds ? 'YES' : 'NO'}`);
         
         for (let i = 0; i < balloonCount; i++) {
-            console.log(`Creating high-altitude balloon ${i + 1}/${balloonCount}`);
+            console.log(`Creating high altitude balloon ${i + 1}/${balloonCount}`);
             const balloon = this.balloons.create(0, 0, 'balloon').setActive(false).setVisible(false);
             if (balloon) {
-                console.log(`High-altitude balloon ${i + 1} created successfully`);
+                console.log(`High altitude balloon ${i + 1} created successfully`);
                 this._resetBalloon(balloon, 'balloon');
             } else {
-                console.log(`FAILED to create high-altitude balloon ${i + 1}`);
+                console.log(`FAILED to create high altitude balloon ${i + 1}`);
             }
         }
         for (let i = 0; i < planeCount; i++) {
