@@ -1,0 +1,17 @@
+{
+  "name": "bufonaut",
+  "version": "1.0.0",
+  "description": "A modular Phaser 3 game about a frog escaping to space",
+  "main": "js/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "npx http-server . -p 8080 -c-1",
+    "start": "npx http-server . -p 8080"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "keywords": ["phaser", "game", "modular", "javascript"],
+  "author": "Bufonaut Developer",
+  "license": "MIT"
+} 
