@@ -190,26 +190,67 @@ export class ObjectSpawner {
     }
 
     _spawnHighAltitudeObjects(maxObjects) {
-        for (let i = 0; i < Math.min(GAME_CONSTANTS.OBSTACLES.BALLOON_COUNT, maxObjects / 2); i++) {
+        const balloonCount = Math.min(GAME_CONSTANTS.OBSTACLES.BALLOON_COUNT, maxObjects / 2);
+        const planeCount = Math.min(GAME_CONSTANTS.OBSTACLES.BIRD_COUNT, maxObjects / 2);
+        
+        console.log(`=== HIGH ALTITUDE OBJECT SPAWNING ===`);
+        console.log(`Attempting to spawn ${balloonCount} balloons and ${planeCount} planes in HIGH_ALTITUDE zone`);
+        console.log(`Balloons group exists: ${this.balloons ? 'YES' : 'NO'}`);
+        console.log(`Birds group exists: ${this.birds ? 'YES' : 'NO'}`);
+        
+        for (let i = 0; i < balloonCount; i++) {
+            console.log(`Creating high-altitude balloon ${i + 1}/${balloonCount}`);
             const balloon = this.balloons.create(0, 0, 'balloon').setActive(false).setVisible(false);
-            this._resetBalloon(balloon, 'balloon'); // Use regular balloon for now
+            if (balloon) {
+                console.log(`High-altitude balloon ${i + 1} created successfully`);
+                this._resetBalloon(balloon, 'balloon');
+            } else {
+                console.log(`FAILED to create high-altitude balloon ${i + 1}`);
+            }
         }
-        for (let i = 0; i < Math.min(GAME_CONSTANTS.OBSTACLES.BIRD_COUNT, maxObjects / 2); i++) {
+        for (let i = 0; i < planeCount; i++) {
+            console.log(`Creating plane ${i + 1}/${planeCount}`);
             const bird = this.birds.create(0, 0, 'plane').setActive(false).setVisible(false);
-            this._resetBird(bird, 'plane');
+            if (bird) {
+                console.log(`Plane ${i + 1} created successfully`);
+                this._resetBird(bird, 'plane');
+            } else {
+                console.log(`FAILED to create plane ${i + 1}`);
+            }
         }
-        console.log(`Spawned ${Math.min(GAME_CONSTANTS.OBSTACLES.BALLOON_COUNT, maxObjects / 2)} balloons and ${Math.min(GAME_CONSTANTS.OBSTACLES.BIRD_COUNT, maxObjects / 2)} planes in HIGH_ALTITUDE zone`);
+        console.log(`=== HIGH ALTITUDE OBJECT SPAWNING COMPLETE ===`);
     }
 
     _spawnSpaceObjects(maxObjects) {
-        for (let i = 0; i < Math.min(GAME_CONSTANTS.OBSTACLES.BALLOON_COUNT, maxObjects / 2); i++) {
+        const satelliteCount = Math.min(GAME_CONSTANTS.OBSTACLES.BALLOON_COUNT, maxObjects / 2);
+        const martianCount = Math.min(GAME_CONSTANTS.OBSTACLES.BIRD_COUNT, maxObjects / 2);
+        
+        console.log(`=== SPACE OBJECT SPAWNING ===`);
+        console.log(`Attempting to spawn ${satelliteCount} satellites and ${martianCount} martians in SPACE zone`);
+        console.log(`Balloons group exists: ${this.balloons ? 'YES' : 'NO'}`);
+        console.log(`Birds group exists: ${this.birds ? 'YES' : 'NO'}`);
+        
+        for (let i = 0; i < satelliteCount; i++) {
+            console.log(`Creating satellite ${i + 1}/${satelliteCount}`);
             const balloon = this.balloons.create(0, 0, 'satellite').setActive(false).setVisible(false);
-            this._resetBalloon(balloon, 'satellite');
+            if (balloon) {
+                console.log(`Satellite ${i + 1} created successfully`);
+                this._resetBalloon(balloon, 'satellite');
+            } else {
+                console.log(`FAILED to create satellite ${i + 1}`);
+            }
         }
-        for (let i = 0; i < Math.min(GAME_CONSTANTS.OBSTACLES.BIRD_COUNT, maxObjects / 2); i++) {
+        for (let i = 0; i < martianCount; i++) {
+            console.log(`Creating martian ${i + 1}/${martianCount}`);
             const bird = this.birds.create(0, 0, 'martian').setActive(false).setVisible(false);
-            this._resetBird(bird, 'martian');
+            if (bird) {
+                console.log(`Martian ${i + 1} created successfully`);
+                this._resetBird(bird, 'martian');
+            } else {
+                console.log(`FAILED to create martian ${i + 1}`);
+            }
         }
+        console.log(`=== SPACE OBJECT SPAWNING COMPLETE ===`);
     }
 
     _resetBalloon(balloon, textureType) {

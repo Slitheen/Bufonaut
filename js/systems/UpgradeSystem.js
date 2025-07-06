@@ -11,8 +11,8 @@ export class UpgradeSystem {
                 level: 1,
                 maxLevel: 10,
                 cost: 10,
-                power: 3.0,
-                increment: 0.5
+                power: 8.0, // Increased from 3.0
+                increment: 1.5 // Increased from 0.5
             },
             frame: {
                 name: 'Launcher Frame',
@@ -20,8 +20,8 @@ export class UpgradeSystem {
                 level: 1,
                 maxLevel: 10,
                 cost: 15,
-                power: 2.0,
-                increment: 0.3
+                power: 6.0, // Increased from 2.0
+                increment: 1.2 // Increased from 0.3
             },
             spaceShip: {
                 name: 'Rocket Hull',
@@ -29,8 +29,8 @@ export class UpgradeSystem {
                 level: 1,
                 maxLevel: 10,
                 cost: 25,
-                power: 1.0,
-                increment: 0.2
+                power: 4.0, // Increased from 1.0
+                increment: 0.8 // Increased from 0.2
             },
             rocket: {
                 name: 'Guidance Rocket',
