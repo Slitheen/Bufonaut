@@ -12,7 +12,7 @@ export const UI_THEME = {
 
 export const GAME_CONSTANTS = {
     WORLD_TOP: -50000,
-    GROUND_HEIGHT: 120,
+    GROUND_HEIGHT: 180, // Increased for additional grass row
     PLAYER: {
         SIZE: 75,
         START_Y_OFFSET: 60,
@@ -20,16 +20,19 @@ export const GAME_CONSTANTS = {
         MAX_VELOCITY: 1500,
     },
     OBSTACLES: {
-        BALLOON_COUNT: 6,
-        BIRD_COUNT: 4,
-        CLOUD_COUNT: 3,
+        BALLOON_COUNT: 15,
+        BIRD_COUNT: 12,
+        CLOUD_COUNT: 8,
+        COIN_COUNT: 20,
+        GAS_TANK_COUNT: 8,
         BALLOON_BOOST: -900,
         BIRD_BOOST: -700,
         CLOUD_SLOWDOWN: 0.7,
     },
     REWARDS: {
-        BASE_MATERIALS: 0,
+        BASE_COINS: 0,
         DISTANCE_DIVISOR: 75,
+        COIN_VALUE: 10,
     },
     SKY: {
         SUNSET_Y: -4000,
@@ -64,7 +67,7 @@ export const GAME_CONSTANTS = {
         ZONE_CHECK_FREQUENCY: 144, // Increased for 144 FPS
         ROTATION_FREQUENCY: 8, // Increased for smoother rotation at 144 FPS
         CAMERA_SMOOTHING: 0.12, // Slightly increased for smoother camera at 144 FPS
-        MAX_ACTIVE_OBJECTS: 20 // Optimized for 144 FPS performance
+        MAX_ACTIVE_OBJECTS: 50 // Increased to accommodate higher spawn rates
     }
 };
 
@@ -108,6 +111,12 @@ export const PHASER_CONFIG = {
     callbacks: {
         preBoot: function (game) {
             // Set canvas optimization before it's used
+            if (game.canvas) {
+                game.canvas.setAttribute('willReadFrequently', 'true');
+            }
+        },
+        postBoot: function (game) {
+            // Ensure canvas optimization is set after boot as well
             if (game.canvas) {
                 game.canvas.setAttribute('willReadFrequently', 'true');
             }

@@ -8,6 +8,23 @@ export class UISystem {
         this.altitudeText = null;
         this.fuelGauge = null;
         this.launcherVisualization = null;
+        
+        // Debug system
+        this.debugMenu = null;
+        this.debugHitboxes = {
+            bufo: false,
+            platform: false,
+            balloons: false,
+            birds: false,
+            clouds: false
+        };
+        this.debugGraphics = {
+            bufo: null,
+            platform: null,
+            balloons: null,
+            birds: null,
+            clouds: null
+        };
     }
 
     createModernUI() {
@@ -21,10 +38,10 @@ export class UISystem {
         // Create cloud-themed title with animated clouds
         this.createCloudTitle();
 
-        // Stats display with modern styling
+        // Stats display with modern styling - moved down to create more launch space
         const labelX = 60;
         const valueX = 360;
-        const initialY = 180;
+        const initialY = 280; // Moved down from 180 to 280
         const stepY = 67;
 
         // Create stat cards
@@ -37,8 +54,8 @@ export class UISystem {
         this.createStatCard('Air Time:', '0.0s', labelX, valueX, initialY + (stepY * 2));
         this.ui.airTimeText = this.createStatValue('0.0s', valueX, initialY + (stepY * 2));
 
-        this.createStatCard('Materials:', '0', labelX, valueX, initialY + (stepY * 3));
-        this.ui.materialsText = this.createStatValue('0', valueX, initialY + (stepY * 3));
+        this.createStatCard('Coins:', '0', labelX, valueX, initialY + (stepY * 3));
+        this.ui.coinsText = this.createStatValue('0', valueX, initialY + (stepY * 3));
 
         // Day counter on the right
         this.createStatCard('Day:', '1', this.scene.cameras.main.width - 330, this.scene.cameras.main.width - 180, initialY);
@@ -77,19 +94,50 @@ export class UISystem {
             .setSize(this.scene.cameras.main.width, GAME_CONSTANTS.GROUND_HEIGHT)
             .setVisible(false);
 
-        // Create the visual tiled sprite for the grass
-        this.scene.add.tileSprite(
+        // Create the visual tiled sprite for the grass (main row) with random variation
+        const grassVariations = ['grass', 'grass2', 'grass3', 'grass4'];
+        const mainGrassTexture = Phaser.Math.RND.pick(grassVariations);
+        
+        // Initialize grass tiles array
+        this.grassTiles = [];
+        
+        const mainGrassTile = this.scene.add.tileSprite(
             this.scene.cameras.main.width / 2,
             this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2),
             this.scene.cameras.main.width,
             GAME_CONSTANTS.GROUND_HEIGHT,
-            'grass'
+            mainGrassTexture
         );
+        this.grassTiles.push(mainGrassTile);
+        
+        // Create multiple additional rows of grass tiles for extended pull range
+        const grassTileHeight = 60; // Height of each grass tile
+        
+        // Add 3 additional rows of grass tiles to extend the pullable area (4 total rows including main ground)
+        for (let i = 1; i <= 3; i++) { // Add 3 additional rows
+            const additionalGrassY = this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2) - (grassTileHeight * i);
+            
+            // Use random grass variation for each row to create more natural variation
+            const randomGrassTexture = Phaser.Math.RND.pick(grassVariations);
+            
+            const grassTile = this.scene.add.tileSprite(
+                this.scene.cameras.main.width / 2,
+                additionalGrassY,
+                this.scene.cameras.main.width,
+                grassTileHeight,
+                randomGrassTexture
+            );
+            this.grassTiles.push(grassTile);
+        }
 
+        // Create launcher platform
+        this.createLauncherPlatform();
+        
         // Create the player (only if not already created)
         if (!this.scene.player) {
             const startX = this.scene.cameras.main.width / 2;
-            const startY = this.scene.groundLevel - GAME_CONSTANTS.PLAYER.START_Y_OFFSET - GAME_CONSTANTS.PLAYER.SIZE / 2;
+            // Position player on top of the launcher platform
+            const startY = this.scene.groundLevel - GAME_CONSTANTS.PLAYER.SIZE / 2 - 25; // On top of platform (platform height)
             this.scene.initialPlayerPosition = new Phaser.Math.Vector2(startX, startY);
             const playerTexture = this.scene.upgradeSystem.hasRocket() ? 'bufo_rocket' : 'bufo';
             this.scene.player = this.scene.physics.add.sprite(startX, startY, playerTexture)
@@ -97,15 +145,275 @@ export class UISystem {
                 .setDisplaySize(GAME_CONSTANTS.PLAYER.SIZE, GAME_CONSTANTS.PLAYER.SIZE)
                 .setCollideWorldBounds(true)
                 .refreshBody()
-                .setDepth(500); // Higher than launcher (400)
+                .setDepth(500) // Higher than launcher (400)
+                .setInteractive(); // Make player interactive for clicking
             this.scene.player.setCircle(this.scene.player.width / 2);
+            
+            // Disable gravity initially to prevent falling
+            this.scene.player.body.setGravityY(0);
+            this.scene.player.body.setVelocity(0, 0);
 
             // Setup ground collision
             this.scene.physics.add.collider(this.scene.player, ground, () => this.scene.collisionSystem.onPlayerLand(), null, this.scene);
+            
+            // Setup platform collision
+            if (this.platformBody) {
+                this.scene.physics.add.collider(this.scene.player, this.platformBody, () => {
+                    console.log('=== PLATFORM COLLISION DETECTED ===');
+                    console.log('Platform collision state:', {
+                        isPulling: this.scene.isPulling,
+                        isAirborne: this.scene.isAirborne,
+                        hasBeenLaunched: this.scene.hasBeenLaunched,
+                        velocityY: this.scene.player.body.velocity.y
+                    });
+                    
+                    // Don't interfere if player is pulling or if we just restarted the day
+                    if (this.scene.isPulling || this.scene.isLanded) {
+                        console.log('Platform collision ignored - player is pulling or just landed');
+                        return;
+                    }
+                    
+                    // If player is airborne and has been properly launched and is falling with significant velocity, end the game
+                    if (this.scene.isAirborne && this.scene.hasBeenLaunched && this.scene.player.body.velocity.y > 5) {
+                        console.log('Proper landing detected - ending game');
+                        this.scene.handleLanding();
+                    } else if (this.scene.isAirborne && !this.scene.hasBeenLaunched) {
+                        // Underpowered launch - reset player for relaunch
+                        console.log('Underpowered launch detected - resetting for relaunch');
+                        this.scene.isAirborne = false;
+                        this.scene.hasBeenLaunched = false;
+                        this.scene.player.body.setVelocityY(0);
+                        this.scene.player.body.setVelocityX(0);
+                        this.scene.player.body.setGravityY(0); // Disable gravity for relaunch
+                        const platformY = this.scene.groundLevel - 12;
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                        this.scene.player.setAngle(0);
+                        console.log('Player reset for relaunch');
+                    } else if (this.scene.player.body.velocity.y > 5 && !this.scene.isPulling) {
+                        // Just stop falling and position on platform if not a real landing and not pulling
+                        this.scene.player.body.setVelocityY(0);
+                        this.scene.player.body.setVelocityX(0); // Stop horizontal movement too
+                        const platformY = this.scene.groundLevel - 12; // Platform top surface
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x; // Keep centered
+                        console.log('Stopped falling and positioned on platform');
+                    } else if (this.scene.player.body.velocity.y < -5 && this.scene.player.y > this.scene.groundLevel - 20 && !this.scene.isPulling) {
+                        // If player is moving upward but still near platform, stop them (but not during pulling)
+                        this.scene.player.body.setVelocityY(0);
+                        this.scene.player.body.setVelocityX(0);
+                        const platformY = this.scene.groundLevel - 12;
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                        console.log('Stopped upward movement near platform');
+                    } else if (this.scene.player.body.velocity.x !== 0 && this.scene.player.y > this.scene.groundLevel - 25 && !this.scene.isPulling) {
+                        // If player is sliding horizontally near platform, stop them immediately (but not during pulling)
+                        this.scene.player.body.setVelocityX(0);
+                        this.scene.player.body.setVelocityY(0);
+                        const platformY = this.scene.groundLevel - 12;
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                        console.log('Stopped horizontal sliding near platform');
+                    } else if (Math.abs(this.scene.player.body.velocity.y) < 5 && this.scene.player.y > this.scene.groundLevel - 25 && !this.scene.isPulling) {
+                        // If player is stuck with very small velocity near platform, stabilize them
+                        this.scene.player.body.setVelocityX(0);
+                        this.scene.player.body.setVelocityY(0);
+                        const platformY = this.scene.groundLevel - 12;
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                        console.log('Stabilized player stuck with small velocity');
+                    }
+                }, null, this.scene);
+            }
+            
+            // Force player to stay on platform initially
+            this.scene.time.delayedCall(50, () => {
+                if (this.scene.player) {
+                    // Ensure player is positioned correctly on platform
+                    const platformY = this.scene.groundLevel - 12; // Platform top surface
+                    this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                    this.scene.player.body.setVelocity(0, 0);
+                }
+            });
+            
+            // Re-enable gravity after a short delay to allow for launching
+            this.scene.time.delayedCall(200, () => {
+                if (this.scene.player) {
+                    this.scene.player.body.setGravityY(300); // Re-enable gravity
+                }
+            });
         }
         
         // Create launcher visualization
         this.createLauncherVisualization();
+    }
+
+    resetPlayerForNewDay() {
+        // Reset player state for a new day
+        if (this.scene.player) {
+            // Clear any existing launch lines immediately
+            if (this.scene.launchLine) {
+                this.scene.launchLine.clear();
+            }
+            if (this.scene.launchZoneIndicator) {
+                this.scene.launchZoneIndicator.clear();
+            }
+            
+            // Re-enable physics body and keep gravity disabled until launch
+            this.scene.player.body.setEnable(true);
+            this.scene.player.body.setGravityY(0);
+            this.scene.player.body.setVelocity(0, 0);
+            
+            // Position player correctly on platform
+            const platformY = this.scene.groundLevel - 12; // Platform top surface
+            this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+            this.scene.player.x = this.scene.initialPlayerPosition.x;
+            
+            // Allow interaction but prevent physics movement
+            this.scene.player.body.setImmovable(false); // Allow interaction
+            this.scene.player.body.setBounce(0, 0);
+            this.scene.player.body.setFriction(1);
+            
+            // Continuous position stabilization for the first few frames
+            let stabilizationCount = 0;
+            const maxStabilizationFrames = 10;
+            
+            const stabilizePosition = () => {
+                if (this.scene.player && !this.scene.isAirborne && !this.scene.isPulling && stabilizationCount < maxStabilizationFrames) {
+                    this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                    this.scene.player.x = this.scene.initialPlayerPosition.x;
+                    this.scene.player.body.setVelocity(0, 0);
+                    stabilizationCount++;
+                    
+                    if (stabilizationCount < maxStabilizationFrames) {
+                        this.scene.time.delayedCall(16, stabilizePosition);
+                    }
+                }
+            };
+            
+            stabilizePosition();
+            
+            // Add continuous movement prevention for a longer period
+            this.scene.time.delayedCall(500, () => {
+                if (this.scene.player && !this.scene.isAirborne && !this.scene.isPulling) {
+                    // Set up a continuous check to prevent sliding
+                                const preventSliding = () => {
+                if (this.scene.player && !this.scene.isAirborne && !this.scene.isPulling) {
+                    // If player is moving horizontally, stop them
+                    if (Math.abs(this.scene.player.body.velocity.x) > 0.1) {
+                        this.scene.player.body.setVelocityX(0);
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                    }
+                    // If player is moving vertically, stop them
+                    if (Math.abs(this.scene.player.body.velocity.y) > 0.1) {
+                        this.scene.player.body.setVelocityY(0);
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                    }
+                    // Continue checking only if not pulling
+                    if (!this.scene.isPulling) {
+                        this.scene.time.delayedCall(32, preventSliding);
+                    }
+                }
+            };
+                    preventSliding();
+                }
+            });
+            
+            // Add a visual indicator that player is ready (temporary)
+            this.scene.time.delayedCall(500, () => {
+                if (this.scene.player && !this.scene.isAirborne && !this.scene.isLanded) {
+                    // Add a subtle glow effect to show player is ready
+                    this.scene.tweens.add({
+                        targets: this.scene.player,
+                        alpha: 0.8,
+                        duration: 300,
+                        ease: 'Sine.easeInOut',
+                        yoyo: true,
+                        repeat: 1
+                    });
+                }
+            });
+            
+            console.log('Player reset - gravity disabled, positioned on platform, interaction enabled');
+        }
+    }
+
+    createLauncherPlatform() {
+        const platformWidth = 180; // Wider platform
+        const platformHeight = 25; // Slightly taller
+        const platformX = this.scene.cameras.main.width / 2;
+        const platformY = this.scene.groundLevel - platformHeight/2; // Position at ground level
+        
+        // Create platform container
+        this.launcherPlatform = this.scene.add.container(platformX, platformY);
+        
+        // Main platform base (dark steel)
+        const base = this.scene.add.graphics()
+            .fillStyle(0x2C3E50, 0.9) // Dark steel color
+            .fillRoundedRect(-platformWidth/2, -platformHeight/2, platformWidth, platformHeight, 8)
+            .lineStyle(2, 0x34495E, 0.8) // Slightly lighter border
+            .strokeRoundedRect(-platformWidth/2, -platformHeight/2, platformWidth, platformHeight, 8);
+        
+        // Platform top surface (lighter steel)
+        const surface = this.scene.add.graphics()
+            .fillStyle(0x34495E, 0.7) // Lighter steel for top surface
+            .fillRoundedRect(-platformWidth/2 + 4, -platformHeight/2 + 2, platformWidth - 8, platformHeight - 4, 6);
+        
+        // Add metallic details - rivets
+        const rivets = [];
+        const rivetCount = 6;
+        for (let i = 0; i < rivetCount; i++) {
+            const rivetX = (-platformWidth/2 + 15) + (i * (platformWidth - 30) / (rivetCount - 1));
+            const rivet = this.scene.add.graphics()
+                .fillStyle(0x95A5A6, 0.8) // Silver rivet color
+                .fillCircle(rivetX, 0, 3)
+                .lineStyle(1, 0x7F8C8D, 0.9)
+                .strokeCircle(rivetX, 0, 3);
+            rivets.push(rivet);
+        }
+        
+        // Add support beams underneath
+        const supportBeams = [];
+        const beamCount = 3;
+        for (let i = 0; i < beamCount; i++) {
+            const beamX = (-platformWidth/2 + 20) + (i * (platformWidth - 40) / (beamCount - 1));
+            const beam = this.scene.add.graphics()
+                .fillStyle(0x2C3E50, 0.8) // Dark steel for beams
+                .fillRect(beamX - 3, platformHeight/2, 6, 15)
+                .lineStyle(1, 0x34495E, 0.9)
+                .strokeRect(beamX - 3, platformHeight/2, 6, 15);
+            supportBeams.push(beam);
+        }
+        
+        // Add subtle shadow underneath
+        const shadow = this.scene.add.graphics()
+            .fillStyle(0x000000, 0.3)
+            .fillEllipse(0, platformHeight/2 + 20, platformWidth + 10, 10);
+        
+        // Add all elements to platform container
+        this.launcherPlatform.add([base, surface, shadow, ...rivets, ...supportBeams]);
+        
+        // Set depth to be below player but above ground
+        this.launcherPlatform.setDepth(300);
+        
+        // Create physics body for the platform so player can stand on it
+        const platformBody = this.scene.physics.add.staticGroup();
+        const platformCollider = platformBody.create(platformX, platformY, null)
+            .setSize(platformWidth, platformHeight + 15) // Larger collision area for consistent platform effect
+            .setVisible(false);
+        
+        // Store reference to platform body for collision setup
+        this.platformBody = platformBody;
+        
+        // Add subtle hover effect
+        this.scene.tweens.add({
+            targets: this.launcherPlatform,
+            y: platformY - 2,
+            duration: 2000,
+            ease: 'Sine.easeInOut',
+            yoyo: true,
+            repeat: -1
+        });
     }
 
     createActionPanel() {
@@ -121,29 +429,135 @@ export class UISystem {
         // Setup slingshot inputs
         this.scene.launchLine = this.scene.add.graphics();
         this.scene.launchZoneIndicator = this.scene.add.graphics();
+        
+        // Ensure launch lines are visible and on top
+        this.scene.launchLine.setDepth(1000);
+        this.scene.launchZoneIndicator.setDepth(1000);
+        
+        // Remove any existing input listeners to prevent duplicates
+        this.scene.input.off('pointerdown');
+        this.scene.input.off('pointermove');
+        this.scene.input.off('pointerup');
 
         // Listen for a click or touch anywhere on the game screen
         this.scene.input.on('pointerdown', (pointer) => {
-            if (!this.scene.isAirborne && !this.scene.isLanded) {
+            if (!this.scene.isAirborne && !this.scene.isLanded && !this.scene.isPulling) {
+                console.log('Starting pull!');
                 this.scene.isPulling = true;
+                
+                // Completely disable physics during pulling to prevent any interference
+                this.scene.player.body.setEnable(false); // Disable the entire physics body
+                
                 this.scene.startPoint = new Phaser.Math.Vector2(this.scene.player.x, this.scene.player.y);
+                this.scene.originalPlayerPosition = new Phaser.Math.Vector2(this.scene.player.x, this.scene.player.y);
             }
         });
 
         // Listen for WASD keys for rocket controls
         this.scene.keys = this.scene.input.keyboard.addKeys('W,A,S,D');
 
+        // Handle mouse movement during pulling
+        this.scene.input.on('pointermove', (pointer) => {
+            if (this.scene.isPulling && this.scene.originalPlayerPosition) {
+                console.log('Pointer move - pulling:', {
+                    pointerX: pointer.x,
+                    pointerY: pointer.y,
+                    playerX: this.scene.player.x,
+                    playerY: this.scene.player.y,
+                    velocityX: this.scene.player.body.velocity.x,
+                    velocityY: this.scene.player.body.velocity.y,
+                    gravityY: this.scene.player.body.gravity.y
+                });
+                
+                // Calculate pull distance and direction
+                const pullVector = new Phaser.Math.Vector2(
+                    pointer.x - this.scene.originalPlayerPosition.x,
+                    pointer.y - this.scene.originalPlayerPosition.y
+                );
+                
+                // Allow much longer pull distance for extended range
+                const maxPullDistance = 800; // Increased from 150 to 800 for much longer pulls
+                const pullDistance = Math.min(pullVector.length(), maxPullDistance);
+                const normalizedPull = pullVector.normalize().scale(pullDistance);
+                
+                // Calculate target position
+                const targetX = this.scene.originalPlayerPosition.x + normalizedPull.x;
+                const targetY = this.scene.originalPlayerPosition.y + normalizedPull.y;
+                
+                // Direct movement for immediate response - no smoothing that creates resistance
+                this.scene.player.x = targetX;
+                this.scene.player.y = targetY;
+                
+                // Update start point for launch calculation
+                this.scene.startPoint = new Phaser.Math.Vector2(this.scene.player.x, this.scene.player.y);
+            }
+        });
+
         this.scene.input.on('pointerup', (pointer) => {
             if (this.scene.isPulling) {
+                console.log('Launching!');
                 this.scene.isPulling = false;
                 this.scene.launchLine.clear();
+                this.scene.launchZoneIndicator.clear();
 
-                const pullVector = this.scene.startPoint.clone().subtract(pointer.position);
+                // Calculate pull vector before returning player to original position
+                const pullVector = this.scene.originalPlayerPosition.clone().subtract(this.scene.startPoint);
+                
+                // Return player to original position for launch
+                if (this.scene.originalPlayerPosition) {
+                    this.scene.player.x = this.scene.originalPlayerPosition.x;
+                    this.scene.player.y = this.scene.originalPlayerPosition.y;
+                }
+                const pullDistance = pullVector.length();
                 const currentLaunchPower = this.scene.upgradeSystem.getTotalLaunchPower();
 
-                if (pullVector.y < 0) {
-                    this.scene.player.setVelocity(pullVector.x * currentLaunchPower, pullVector.y * currentLaunchPower);
+                // Check if pull distance is too small or if we just restarted
+                const minPullDistance = 10; // Minimum pixels to move
+                if (pullDistance < minPullDistance || this.scene.justRestarted) {
+                    if (this.scene.justRestarted) {
+                        console.log('Launch prevented - just restarted the day');
+                    } else {
+                        console.log('Pull distance too small, canceling launch:', pullDistance);
+                        
+                        // Add visual feedback to show pull was too small
+                        const feedbackText = this.scene.add.text(this.scene.player.x, this.scene.player.y - 50, 'Pull further!', {
+                            fontSize: '16px',
+                            fill: '#FF6B6B',
+                            stroke: '#000',
+                            strokeThickness: 2
+                        }).setOrigin(0.5);
+                        
+                        // Animate the feedback text
+                        this.scene.tweens.add({
+                            targets: feedbackText,
+                            y: feedbackText.y - 30,
+                            alpha: 0,
+                            duration: 1000,
+                            ease: 'Power2',
+                            onComplete: () => feedbackText.destroy()
+                        });
+                    }
+                    
+                    return; // Don't launch if player didn't move enough or just restarted
+                }
+
+                // Re-enable physics and set up for launch
+                this.scene.player.body.setEnable(true); // Re-enable the physics body
+                this.scene.player.body.setGravityY(300);
+                this.scene.player.body.setBounce(0.1, 0.1);
+                this.scene.player.body.setFriction(0.1);
+                
+                // Calculate launch velocity with smoothing
+                const launchVelocityX = pullVector.x * currentLaunchPower;
+                const launchVelocityY = pullVector.y * currentLaunchPower;
+                
+                // Apply velocity smoothly - use a small delay to prevent jitter
+                this.scene.time.delayedCall(16, () => {
+                    this.scene.player.body.setVelocity(launchVelocityX, launchVelocityY);
+                    
+                    // Set airborne state after velocity is applied
                     this.scene.isAirborne = true;
+                    this.scene.hasBeenLaunched = true; // Mark as properly launched
                     this.scene.launchTime = this.scene.time.now;
                     this.scene.peakY = this.scene.player.y;
                     this.scene.launchCount++;
@@ -151,9 +565,21 @@ export class UISystem {
                     this.ui.flightDistanceText.setText('...');
                     this.ui.airTimeText.setText('...');
                     
-                    // Trigger cloud collision effect when launching
-                    this.triggerCloudCollisionEffect();
-                }
+                    console.log('=== LAUNCH SUCCESSFUL ===');
+                    console.log('Launch state set:', {
+                        isAirborne: this.scene.isAirborne,
+                        hasBeenLaunched: this.scene.hasBeenLaunched,
+                        launchCount: this.scene.launchCount,
+                        peakY: this.scene.peakY
+                    });
+                    
+                    console.log('Launch successful!', {
+                        velocityX: launchVelocityX,
+                        velocityY: launchVelocityY,
+                        power: currentLaunchPower,
+                        pullDistance: pullDistance
+                    });
+                });
             }
         });
 
@@ -167,14 +593,24 @@ export class UISystem {
             }
         });
 
-        const f3Key = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
-        f3Key.on('down', () => this.scene.debugLaunch());
+        const f4Key = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F4);
+        f4Key.on('down', () => this.scene.debugLaunch());
 
         const f9Key = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F9);
         f9Key.on('down', () => {
-            this.scene.upgradeSystem.addMaterials(500);
-            this.ui.materialsText.setText(this.scene.upgradeSystem.getMaterials());
-            console.log(`Admin: Added 500 materials. Total: ${this.scene.upgradeSystem.getMaterials()}`);
+                    this.scene.upgradeSystem.addCoins(500);
+        this.ui.coinsText.setText(this.scene.upgradeSystem.getCoins());
+        console.log(`Admin: Added 500 coins. Total: ${this.scene.upgradeSystem.getCoins()}`);
+        });
+
+        // Debug menu system
+        this.createDebugMenu();
+        
+        // Debug menu toggle
+        const f3Key = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
+        f3Key.on('down', () => {
+            console.log('F3 key pressed!');
+            this.toggleDebugMenu();
         });
     }
 
@@ -203,43 +639,50 @@ export class UISystem {
     }
 
     createSlingshotShape(upgradeElements) {
-        // Create a simple slingshot using rectangles and lines
-        const slingshotWidth = 80;
-        const slingshotHeight = 120;
+        // Create a professional metal slingshot to match the platform
+        const slingshotWidth = 140; // Wider to match platform
+        const slingshotHeight = 180; // Increased height by half (was 120)
         
-        // Left support post
+        // Left support post (professional metal)
         const leftPost = this.scene.add.graphics()
-            .fillStyle(UI_THEME.surface, 0.8)
-            .fillRect(-slingshotWidth/2 - 8, -slingshotHeight/2, 16, slingshotHeight)
-            .lineStyle(2, UI_THEME.primary, 0.9)
-            .strokeRect(-slingshotWidth/2 - 8, -slingshotHeight/2, 16, slingshotHeight);
+            .fillStyle(0x2C3E50, 0.9) // Dark steel base
+            .fillRect(-slingshotWidth/2 - 10, -slingshotHeight/2, 20, slingshotHeight)
+            .lineStyle(2, 0x34495E, 0.8) // Lighter steel border
+            .strokeRect(-slingshotWidth/2 - 10, -slingshotHeight/2, 20, slingshotHeight);
         
-        // Right support post
+        // Right support post (professional metal)
         const rightPost = this.scene.add.graphics()
-            .fillStyle(UI_THEME.surface, 0.8)
-            .fillRect(slingshotWidth/2 - 8, -slingshotHeight/2, 16, slingshotHeight)
-            .lineStyle(2, UI_THEME.primary, 0.9)
-            .strokeRect(slingshotWidth/2 - 8, -slingshotHeight/2, 16, slingshotHeight);
+            .fillStyle(0x2C3E50, 0.9) // Dark steel base
+            .fillRect(slingshotWidth/2 - 10, -slingshotHeight/2, 20, slingshotHeight)
+            .lineStyle(2, 0x34495E, 0.8) // Lighter steel border
+            .strokeRect(slingshotWidth/2 - 10, -slingshotHeight/2, 20, slingshotHeight);
         
-        // Top crossbar
+        // Top crossbar (professional metal)
         const crossbar = this.scene.add.graphics()
-            .fillStyle(UI_THEME.surface, 0.8)
-            .fillRect(-slingshotWidth/2, -slingshotHeight/2 - 8, slingshotWidth, 16)
-            .lineStyle(2, UI_THEME.primary, 0.9)
-            .strokeRect(-slingshotWidth/2, -slingshotHeight/2 - 8, slingshotWidth, 16);
+            .fillStyle(0x2C3E50, 0.9) // Dark steel base
+            .fillRect(-slingshotWidth/2, -slingshotHeight/2 - 12, slingshotWidth, 24)
+            .lineStyle(2, 0x34495E, 0.8) // Lighter steel border
+            .strokeRect(-slingshotWidth/2, -slingshotHeight/2 - 12, slingshotWidth, 24);
         
-        // Rubber band (elastic)
-        const rubberBand = this.scene.add.graphics()
-            .lineStyle(4, UI_THEME.secondary, 0.8)
-            .lineBetween(-slingshotWidth/2 + 4, -slingshotHeight/2 + 20, 0, 20)
-            .lineBetween(slingshotWidth/2 - 4, -slingshotHeight/2 + 20, 0, 20);
+        // Add metallic details - rivets on crossbar
+        const rivetCount = 4;
+        for (let i = 0; i < rivetCount; i++) {
+            const rivetX = (-slingshotWidth/2 + 20) + (i * (slingshotWidth - 40) / (rivetCount - 1));
+            const rivet = this.scene.add.graphics()
+                .fillStyle(0x95A5A6, 0.8) // Silver rivet color
+                .fillCircle(rivetX, -slingshotHeight/2 - 6, 4)
+                .lineStyle(1, 0x7F8C8D, 0.9)
+                .strokeCircle(rivetX, -slingshotHeight/2 - 6, 4);
+            upgradeElements.push(rivet);
+        }
         
-        upgradeElements.push(leftPost, rightPost, crossbar, rubberBand);
+        // No rubber bands - will be drawn dynamically during pulling
+        upgradeElements.push(leftPost, rightPost, crossbar);
     }
 
     createCloudTitle() {
-        // Create title container
-        this.titleContainer = this.scene.add.container(this.scene.cameras.main.width / 2, 90);
+        // Create title container - moved down slightly for more launch space
+        this.titleContainer = this.scene.add.container(this.scene.cameras.main.width / 2, 120);
         
         // Create cloud-themed title text
         const titleText = this.scene.add.text(0, 0, 'Reach for the Sky!', {
@@ -260,58 +703,9 @@ export class UISystem {
         
         this.titleContainer.add(titleText);
         
-        // Create animated clouds around the title
-        this.createTitleClouds();
-        
         // Set the title container to not scroll with camera initially
         this.titleContainer.setScrollFactor(0, 0);
         this.titleContainer.setDepth(100);
-        
-        // Create bottom cloud cover (initially hidden)
-        this.createBottomCloudCover();
-    }
-
-    createTitleClouds() {
-        const cloudTextures = ['cloud', 'cloud_2', 'cloud_3', 'cloud_4', 'cloud_5', 'cloud_6', 'cloud_7'];
-        const cloudCount = 10; // More clouds for better spread
-        
-        for (let i = 0; i < cloudCount; i++) {
-            const cloudTexture = cloudTextures[i % cloudTextures.length];
-            
-            // Spread clouds more widely around the title
-            const x = Phaser.Math.Between(-300, 300); // Wider horizontal spread
-            const y = Phaser.Math.Between(-100, 80); // More vertical spread
-            const scale = Phaser.Math.FloatBetween(0.5, 1.1); // More size variation
-            const delay = i * 300; // Staggered delays
-            
-            const cloud = this.scene.add.image(x, y, cloudTexture)
-                .setScale(scale)
-                .setAlpha(0.75);
-            
-            this.titleContainer.add(cloud);
-            
-            // Add floating animation with more variation
-            this.scene.tweens.add({
-                targets: cloud,
-                y: y - Phaser.Math.Between(8, 18),
-                duration: 2500 + (i * 300),
-                ease: 'Sine.easeInOut',
-                yoyo: true,
-                repeat: -1,
-                delay: delay
-            });
-            
-            // Add gentle rotation
-            this.scene.tweens.add({
-                targets: cloud,
-                angle: Phaser.Math.Between(-8, 8),
-                duration: 3500 + (i * 400),
-                ease: 'Sine.easeInOut',
-                yoyo: true,
-                repeat: -1,
-                delay: delay + 500
-            });
-        }
     }
 
     updateLauncherPosition() {
@@ -390,6 +784,12 @@ export class UISystem {
         this.fuelGauge.setDepth(1000);
     }
 
+    hideFuelGauge() {
+        if (this.fuelGauge) {
+            this.fuelGauge.setVisible(false);
+        }
+    }
+
     createEndOfDayUI() {
         const box = this.scene.add.graphics()
             .fillStyle(UI_THEME.background, 0.9)
@@ -405,7 +805,7 @@ export class UISystem {
             fontFamily: 'Arial, sans-serif'
         }).setOrigin(0.5);
         
-        const materialsEarnedText = this.scene.add.text(0, -60, '', { 
+        const coinsEarnedText = this.scene.add.text(0, -60, '', { 
             fontSize: '28px', 
             fill: UI_THEME.textSecondary, 
             align: 'center',
@@ -420,9 +820,9 @@ export class UISystem {
         
         const nextDayButton = this.createModernButton(0, 95, 'Try Again', () => this.scene.restartDay(), 'danger');
 
-        const container = this.scene.add.container(this.scene.cameras.main.width / 2, this.scene.cameras.main.height / 2, [box, dayFailedText, materialsEarnedText, upgradeButton, nextDayButton]);
+        const container = this.scene.add.container(this.scene.cameras.main.width / 2, this.scene.cameras.main.height / 2, [box, dayFailedText, coinsEarnedText, upgradeButton, nextDayButton]);
         dayFailedText.setName('dayFailedText');
-        materialsEarnedText.setName('materialsEarnedText');
+        coinsEarnedText.setName('coinsEarnedText');
         container.setVisible(false);
         return container;
     }
@@ -486,7 +886,7 @@ export class UISystem {
         createRow(startY + (stepY * 2), 'spaceShip');
         createRow(startY + (stepY * 3), 'rocket');
 
-        const closeButton = this.createModernButton(0, 200, 'Close', () => {
+        const closeButton = this.createModernButton(0, 220, 'Close', () => {
             this.upgradeContainer.setVisible(false);
             this.ui.endOfDayContainer.setVisible(true);
         }, 'danger');
@@ -515,7 +915,7 @@ export class UISystem {
                 const buttonText = buyButton.getByName('buttonText');
                 if (buttonText) buttonText.setText('BUY');
                 
-                if (this.scene.upgradeSystem.getMaterials() >= upgrade.cost) {
+                if (this.scene.upgradeSystem.getCoins() >= upgrade.cost) {
                     buyButton.setAlpha(1).setInteractive(new Phaser.Geom.Rectangle(-40, -20, 80, 40), Phaser.Geom.Rectangle.Contains);
                 } else {
                     buyButton.setAlpha(0.3).disableInteractive();
@@ -634,108 +1034,11 @@ export class UISystem {
         });
     }
 
-    triggerCloudCollisionEffect() {
-        if (!this.titleContainer) return;
-        
-        // Get all clouds in the title container
-        const clouds = this.titleContainer.getAll();
-        
-        clouds.forEach((cloud, index) => {
-            if (cloud.texture && cloud.texture.key && cloud.texture.key.startsWith('cloud')) {
-                // Create a "burst" effect when Bufo launches through
-                this.scene.tweens.add({
-                    targets: cloud,
-                    scaleX: cloud.scaleX * 1.5,
-                    scaleY: cloud.scaleY * 1.5,
-                    alpha: 0.3,
-                    duration: 300,
-                    ease: 'Power2',
-                    delay: index * 50,
-                    yoyo: true,
-                    onComplete: () => {
-                        // Reset cloud to normal
-                        cloud.setScale(cloud.scaleX / 1.5, cloud.scaleY / 1.5);
-                        cloud.setAlpha(0.8);
-                    }
-                });
-                
-                // Add a small particle effect
-                this.createCloudParticles(cloud.x + this.titleContainer.x, cloud.y + this.titleContainer.y);
-            }
-        });
-    }
-
-    createCloudParticles(x, y) {
-        // Create simple particle effect
-        for (let i = 0; i < 5; i++) {
-            const particle = this.scene.add.graphics()
-                .fillStyle(0xFFFFFF, 0.6)
-                .fillCircle(0, 0, 3);
-            
-            particle.setPosition(x, y);
-            particle.setDepth(200);
-            
-            this.scene.tweens.add({
-                targets: particle,
-                x: x + Phaser.Math.Between(-30, 30),
-                y: y + Phaser.Math.Between(-20, 20),
-                alpha: 0,
-                scaleX: 0.5,
-                scaleY: 0.5,
-                duration: 800,
-                ease: 'Power2',
-                onComplete: () => particle.destroy()
-            });
-        }
-    }
-
-    createBottomCloudCover() {
-        // Create bottom cloud cover container
-        this.bottomCloudCover = this.scene.add.container(0, this.scene.cameras.main.height);
-        
-        const cloudTextures = ['cloud', 'cloud_2', 'cloud_3', 'cloud_4', 'cloud_5', 'cloud_6', 'cloud_7'];
-        const cloudCount = 15; // More clouds for better spread
-        
-        for (let i = 0; i < cloudCount; i++) {
-            const cloudTexture = cloudTextures[i % cloudTextures.length];
-            
-            // Spread clouds more horizontally with wider distribution
-            const x = (this.scene.cameras.main.width / (cloudCount - 1)) * i + Phaser.Math.Between(-120, 120);
-            
-            // Bring clouds down and spread them more vertically
-            const y = Phaser.Math.Between(-120, -40); // Lower and more spread out
-            
-            const scale = Phaser.Math.FloatBetween(0.6, 1.3); // Slightly smaller for less screen coverage
-            
-            const cloud = this.scene.add.image(x, y, cloudTexture)
-                .setScale(scale)
-                .setAlpha(0.8);
-            
-            this.bottomCloudCover.add(cloud);
-            
-            // Add gentle floating animation with more variation
-            this.scene.tweens.add({
-                targets: cloud,
-                y: y - Phaser.Math.Between(8, 20), // Slightly less movement
-                duration: 3500 + (i * 500), // More varied timing
-                ease: 'Sine.easeInOut',
-                yoyo: true,
-                repeat: -1,
-                delay: i * 200
-            });
-        }
-        
-        // Initially hidden
-        this.bottomCloudCover.setVisible(false);
-        this.bottomCloudCover.setScrollFactor(0, 0);
-        this.bottomCloudCover.setDepth(150);
-    }
-
     checkCloudBreach() {
         if (!this.scene.player || !this.titleContainer) return;
         
-        // Check if player has breached the title cloud area (around y=90)
-        const breachY = 90;
+        // Check if player has breached the title area (around y=120)
+        const breachY = 120;
         
         if (this.scene.player.y < breachY && !this.cloudBreached) {
             this.cloudBreached = true;
@@ -743,21 +1046,338 @@ export class UISystem {
             // Start camera tracking
             this.scene.startCameraTracking();
             
-            // Hide title and show bottom cloud cover
+            // Hide title when player goes high enough
             this.titleContainer.setVisible(false);
-            this.bottomCloudCover.setVisible(true);
+        }
+    }
+
+    createDebugMenu() {
+        // Create debug menu container
+        this.debugMenu = this.scene.add.container(10, 10);
+        this.debugMenu.setDepth(2000);
+        this.debugMenu.setVisible(false);
+        this.debugMenu.setScrollFactor(0, 0); // Make sure it doesn't scroll with camera
+        
+        // Background panel
+        const bg = this.scene.add.graphics()
+            .fillStyle(0x000000, 0.8)
+            .fillRoundedRect(0, 0, 300, 250, 10)
+            .lineStyle(2, 0x00FF00, 1)
+            .strokeRoundedRect(0, 0, 300, 250, 10);
+        
+        // Title
+        const title = this.scene.add.text(10, 10, 'DEBUG MENU', {
+            fontSize: '18px',
+            fill: '#00FF00',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold'
+        });
+        
+        // Hitbox toggles
+        const hitboxToggles = [
+            { key: 'bufo', label: 'Bufo Hitbox', keyCode: 'B' },
+            { key: 'platform', label: 'Platform Hitbox', keyCode: 'T' },
+            { key: 'balloons', label: 'Balloon Hitboxes', keyCode: '1' },
+            { key: 'birds', label: 'Bird Hitboxes', keyCode: '2' },
+            { key: 'clouds', label: 'Cloud Hitboxes', keyCode: '3' }
+        ];
+        
+        let yOffset = 50;
+        hitboxToggles.forEach((toggle, index) => {
+            const status = this.debugHitboxes[toggle.key] ? 'ON' : 'OFF';
+            const color = this.debugHitboxes[toggle.key] ? '#00FF00' : '#FF0000';
             
-            // Animate bottom cloud cover sliding up
-            this.scene.tweens.add({
-                targets: this.bottomCloudCover,
-                y: this.scene.cameras.main.height - 150,
-                duration: 2000,
-                ease: 'Power2',
-                onComplete: () => {
-                    // Keep it at the bottom
-                    this.bottomCloudCover.y = this.scene.cameras.main.height - 150;
+            const text = this.scene.add.text(10, yOffset, `${toggle.keyCode}: ${toggle.label} [${status}]`, {
+                fontSize: '14px',
+                fill: color,
+                fontFamily: 'Arial, sans-serif'
+            });
+            
+            this.debugMenu.add(text);
+            yOffset += 25;
+        });
+        
+        // Instructions
+        const instructions = this.scene.add.text(10, yOffset + 10, 'F3: Toggle Debug Menu\nF4: Test Launch\nB: Toggle Bufo Hitbox\nT: Toggle Platform Hitbox\n1: Toggle Balloon Hitboxes\n2: Toggle Bird Hitboxes\n3: Toggle Cloud Hitboxes\nC: Clear All Hitboxes', {
+            fontSize: '12px',
+            fill: '#00FF00',
+            fontFamily: 'Arial, sans-serif'
+        });
+        
+        // Add all elements to debug menu
+        this.debugMenu.add([bg, title, instructions]);
+        
+        // Create debug graphics containers
+        this.debugGraphics.bufo = this.scene.add.graphics();
+        this.debugGraphics.platform = this.scene.add.graphics();
+        this.debugGraphics.balloons = this.scene.add.graphics();
+        this.debugGraphics.birds = this.scene.add.graphics();
+        this.debugGraphics.clouds = this.scene.add.graphics();
+        
+        // Set depths for debug graphics
+        Object.values(this.debugGraphics).forEach(graphics => {
+            if (graphics) graphics.setDepth(1500);
+        });
+        
+        // Add key bindings for individual toggles
+        const keyBindings = {
+            'B': 'bufo',
+            'T': 'platform',
+            '1': 'balloons',
+            '2': 'birds',
+            '3': 'clouds'
+        };
+        
+        Object.entries(keyBindings).forEach(([key, hitboxType]) => {
+            const keyObj = this.scene.input.keyboard.addKey(key);
+            keyObj.on('down', () => {
+                this.toggleHitbox(hitboxType);
+            });
+        });
+        
+        // Add clear all hitboxes key binding
+        const cKey = this.scene.input.keyboard.addKey('C');
+        cKey.on('down', () => {
+            this.clearAllDebugHitboxes();
+        });
+    }
+
+    toggleDebugMenu() {
+        console.log('Toggle debug menu called');
+        if (this.debugMenu) {
+            const wasVisible = this.debugMenu.visible;
+            this.debugMenu.setVisible(!wasVisible);
+            console.log(`Debug menu was ${wasVisible ? 'visible' : 'hidden'}, now ${this.debugMenu.visible ? 'visible' : 'hidden'}`);
+            
+            // Force update the debug menu text
+            this.updateDebugMenuText();
+        } else {
+            console.log('Debug menu is null!');
+        }
+    }
+
+    toggleHitbox(hitboxType) {
+        if (this.debugHitboxes.hasOwnProperty(hitboxType)) {
+            this.debugHitboxes[hitboxType] = !this.debugHitboxes[hitboxType];
+            console.log(`${hitboxType} hitbox ${this.debugHitboxes[hitboxType] ? 'enabled' : 'disabled'}`);
+            
+            // Clear existing graphics
+            if (this.debugGraphics[hitboxType]) {
+                this.debugGraphics[hitboxType].clear();
+            }
+            
+            // Update debug menu text
+            this.updateDebugMenuText();
+            
+            // Draw hitboxes if enabled
+            if (this.debugHitboxes[hitboxType]) {
+                this.drawHitboxes(hitboxType);
+            }
+            
+            // For static hitboxes, ensure they stay visible
+            if (hitboxType === 'platform' && this.debugHitboxes[hitboxType]) {
+                // Force redraw platform hitbox
+                const graphics = this.debugGraphics[hitboxType];
+                if (graphics) {
+                    graphics.clear();
+                    this.drawPlatformHitbox(graphics);
+                }
+            }
+        }
+    }
+
+    updateDebugMenuText() {
+        // Update the status text in the debug menu
+        if (this.debugMenu) {
+            const hitboxToggles = [
+                { key: 'bufo', label: 'Bufo Hitbox', keyCode: 'B' },
+                { key: 'platform', label: 'Platform Hitbox', keyCode: 'T' },
+                { key: 'balloons', label: 'Balloon Hitboxes', keyCode: '1' },
+                { key: 'birds', label: 'Bird Hitboxes', keyCode: '2' },
+                { key: 'clouds', label: 'Cloud Hitboxes', keyCode: '3' }
+            ];
+            
+            // Find and update text elements
+            this.debugMenu.each((child) => {
+                if (child.type === 'Text') {
+                    hitboxToggles.forEach(toggle => {
+                        if (child.text.includes(toggle.label)) {
+                            const status = this.debugHitboxes[toggle.key] ? 'ON' : 'OFF';
+                            const color = this.debugHitboxes[toggle.key] ? '#00FF00' : '#FF0000';
+                            child.setText(`${toggle.keyCode}: ${toggle.label} [${status}]`);
+                            child.setColor(color);
+                        }
+                    });
                 }
             });
         }
+    }
+
+    drawHitboxes(hitboxType) {
+        const graphics = this.debugGraphics[hitboxType];
+        if (!graphics) return;
+        
+        graphics.clear();
+        
+        switch (hitboxType) {
+            case 'bufo':
+                this.drawBufoHitbox(graphics);
+                break;
+            case 'platform':
+                this.drawPlatformHitbox(graphics);
+                break;
+            case 'balloons':
+                this.drawBalloonHitboxes(graphics);
+                break;
+            case 'birds':
+                this.drawBirdHitboxes(graphics);
+                break;
+            case 'clouds':
+                this.drawCloudHitboxes(graphics);
+                break;
+        }
+    }
+
+    drawBufoHitbox(graphics) {
+        if (this.scene.player) {
+            graphics.lineStyle(2, 0xFF0000, 1);
+            graphics.strokeCircle(this.scene.player.x, this.scene.player.y, this.scene.player.width / 2);
+        }
+    }
+
+    drawPlatformHitbox(graphics) {
+        console.log('Drawing platform hitbox, platformBody:', this.platformBody);
+        if (this.platformBody) {
+            graphics.lineStyle(2, 0x00FF00, 1);
+            this.platformBody.children.entries.forEach(collider => {
+                console.log('Drawing collider:', collider.x, collider.y, collider.width, collider.height);
+                graphics.strokeRect(
+                    collider.x - collider.width / 2,
+                    collider.y - collider.height / 2,
+                    collider.width,
+                    collider.height
+                );
+            });
+        } else {
+            console.log('No platformBody found for platform hitbox');
+        }
+    }
+
+    drawBalloonHitboxes(graphics) {
+        if (this.scene.objectSpawner && this.scene.objectSpawner.balloons) {
+            graphics.lineStyle(2, 0xFFFF00, 1);
+            this.scene.objectSpawner.balloons.children.entries.forEach(balloon => {
+                if (balloon.active && balloon.visible) {
+                    graphics.strokeCircle(balloon.x, balloon.y, balloon.width / 2);
+                }
+            });
+        }
+    }
+
+    drawBirdHitboxes(graphics) {
+        if (this.scene.objectSpawner && this.scene.objectSpawner.birds) {
+            graphics.lineStyle(2, 0x00FFFF, 1);
+            this.scene.objectSpawner.birds.children.entries.forEach(bird => {
+                if (bird.active && bird.visible) {
+                    graphics.strokeCircle(bird.x, bird.y, bird.width / 2);
+                }
+            });
+        }
+    }
+
+    drawCloudHitboxes(graphics) {
+        if (this.scene.objectSpawner && this.scene.objectSpawner.clouds) {
+            graphics.lineStyle(2, 0x808080, 1);
+            this.scene.objectSpawner.clouds.children.entries.forEach(cloud => {
+                if (cloud.active && cloud.visible) {
+                    graphics.strokeCircle(cloud.x, cloud.y, cloud.width / 2);
+                }
+            });
+        }
+    }
+
+    updateDebugHitboxes() {
+        // Only update hitboxes that need continuous updates (moving objects)
+        // Don't redraw static hitboxes like platform every frame
+        
+        // Check if any hitboxes are enabled before doing any work
+        const hasEnabledHitboxes = Object.values(this.debugHitboxes).some(enabled => enabled);
+        if (!hasEnabledHitboxes) {
+            return; // Exit early if no hitboxes are enabled
+        }
+        
+        // Only update moving objects, not static ones
+        if (this.debugHitboxes.bufo && this.scene.player) {
+            // Only redraw bufo hitbox if player position changed significantly
+            const graphics = this.debugGraphics.bufo;
+            if (graphics) {
+                graphics.clear();
+                this.drawBufoHitbox(graphics);
+            }
+        }
+        
+        // Note: Static hitboxes (platform) and object hitboxes (balloons, birds, clouds) 
+        // are drawn once when enabled and don't need continuous updates
+    }
+
+    clearAllDebugHitboxes() {
+        // Clear all debug graphics
+        Object.values(this.debugGraphics).forEach(graphics => {
+            if (graphics) graphics.clear();
+        });
+        
+        // Reset all hitbox states
+        Object.keys(this.debugHitboxes).forEach(key => {
+            this.debugHitboxes[key] = false;
+        });
+        
+        // Update debug menu text
+        this.updateDebugMenuText();
+        
+        console.log('All debug hitboxes cleared');
+    }
+
+    recreateGrassTiles() {
+        // Remove existing grass tiles
+        if (this.grassTiles) {
+            this.grassTiles.forEach(tile => {
+                if (tile && tile.destroy) {
+                    tile.destroy();
+                }
+            });
+        }
+        
+        // Create new grass tiles with fresh randomization
+        this.grassTiles = [];
+        const grassVariations = ['grass', 'grass2', 'grass3', 'grass4'];
+        
+        // Create the main ground grass tile
+        const mainGrassTexture = Phaser.Math.RND.pick(grassVariations);
+        const mainGrassTile = this.scene.add.tileSprite(
+            this.scene.cameras.main.width / 2,
+            this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2),
+            this.scene.cameras.main.width,
+            GAME_CONSTANTS.GROUND_HEIGHT,
+            mainGrassTexture
+        );
+        this.grassTiles.push(mainGrassTile);
+        
+        // Create additional grass rows
+        const grassTileHeight = 60;
+        for (let i = 1; i <= 3; i++) {
+            const additionalGrassY = this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2) - (grassTileHeight * i);
+            const randomGrassTexture = Phaser.Math.RND.pick(grassVariations);
+            
+            const grassTile = this.scene.add.tileSprite(
+                this.scene.cameras.main.width / 2,
+                additionalGrassY,
+                this.scene.cameras.main.width,
+                grassTileHeight,
+                randomGrassTexture
+            );
+            this.grassTiles.push(grassTile);
+        }
+        
+        console.log('Grass tiles recreated with new randomization');
     }
 } 

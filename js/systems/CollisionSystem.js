@@ -3,9 +3,31 @@ import { GAME_CONSTANTS, UI_THEME } from '../config/GameConfig.js';
 export class CollisionSystem {
     constructor(scene) {
         this.scene = scene;
+        this.lastLogMessages = new Map(); // Track last log messages to prevent spam
+        this.logCooldown = 2000; // 2 seconds cooldown for repeated messages
+    }
+    
+    // Debug logging utility that prevents spam
+    debugLog(message, key = null) {
+        const now = Date.now();
+        const messageKey = key || message;
+        
+        if (this.lastLogMessages.has(messageKey)) {
+            const lastTime = this.lastLogMessages.get(messageKey);
+            if (now - lastTime < this.logCooldown) {
+                return; // Skip this log message
+            }
+        }
+        
+        console.log(message);
+        this.lastLogMessages.set(messageKey, now);
     }
 
     hitBalloon(player, balloon) {
+        // Store original velocity before boost
+        const originalVelocityY = player.body.velocity.y;
+        const originalVelocityX = player.body.velocity.x;
+        
         // Add upward momentum to current velocity (don't replace it)
         player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST;
         
@@ -14,8 +36,12 @@ export class CollisionSystem {
             player.body.velocity.x += Math.sign(player.body.velocity.x) * 50;
         }
 
-        // Cap velocity to prevent extreme speeds
-        this.capPlayerVelocity(player);
+        // Only cap velocity if it would actually increase speed, not reduce it
+        // This prevents high-speed launches from being slowed down by boosts
+        if (Math.abs(player.body.velocity.y) > Math.abs(originalVelocityY) || 
+            Math.abs(player.body.velocity.x) > Math.abs(originalVelocityX)) {
+            this.capPlayerVelocity(player);
+        }
 
         // Remove from age tracking before destroying
         if (balloon.name) {
@@ -31,14 +57,22 @@ export class CollisionSystem {
     }
 
     hitBird(player, bird) {
+        // Store original velocity before boost
+        const originalVelocityY = player.body.velocity.y;
+        const originalVelocityX = player.body.velocity.x;
+        
         // Add upward momentum to current velocity
         player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BIRD_BOOST;
 
         // Add horizontal momentum in the direction the bird was flying
         player.body.velocity.x += bird.body.velocity.x * 0.5; // Scale down bird's velocity
 
-        // Cap velocity to prevent extreme speeds
-        this.capPlayerVelocity(player);
+        // Only cap velocity if it would actually increase speed, not reduce it
+        // This prevents high-speed launches from being slowed down by boosts
+        if (Math.abs(player.body.velocity.y) > Math.abs(originalVelocityY) || 
+            Math.abs(player.body.velocity.x) > Math.abs(originalVelocityX)) {
+            this.capPlayerVelocity(player);
+        }
 
         // Remove from age tracking before destroying
         if (bird.name) {
@@ -120,11 +154,131 @@ export class CollisionSystem {
         });
     }
 
+    hitCoin(player, coin) {
+        // Add coins to the player's total
+        const coinsEarned = GAME_CONSTANTS.REWARDS.COIN_VALUE;
+        this.scene.upgradeSystem.addCoins(coinsEarned);
+        this.scene.uiSystem.ui.coinsText.setText(this.scene.upgradeSystem.getCoins());
+        
+        this.debugLog(`Coin collected! +${coinsEarned} coins. Total: ${this.scene.upgradeSystem.getCoins()}`, 'coin_collected');
+
+        // Remove from age tracking before destroying
+        if (coin.name) {
+            this.scene.objectSpawner.assetAgeMap.delete(coin.name);
+        }
+
+        // Deactivate the coin, hide it, and disable its physics body
+        coin.setActive(false).setVisible(false);
+        coin.body.enable = false;
+        
+        // Add a visual effect to show the coin collection
+        this.addCoinEffect(player.x, player.y);
+    }
+
+    hitGasTank(player, gasTank) {
+        // Refill fuel if player has a rocket
+        if (this.scene.upgradeSystem.hasRocket()) {
+            const rocketCapabilities = this.scene.upgradeSystem.getRocketCapabilities();
+            this.scene.fuel = rocketCapabilities.fuelCapacity;
+            this.scene.maxFuel = rocketCapabilities.fuelCapacity;
+            
+            this.debugLog(`Gas tank collected! Fuel refilled to ${this.scene.fuel}/${this.scene.maxFuel}`, 'gas_tank_collected');
+        } else {
+            this.debugLog('Gas tank collected but no rocket to refill!', 'gas_tank_no_rocket');
+        }
+
+        // Remove from age tracking before destroying
+        if (gasTank.name) {
+            this.scene.objectSpawner.assetAgeMap.delete(gasTank.name);
+        }
+
+        // Deactivate the gas tank, hide it, and disable its physics body
+        gasTank.setActive(false).setVisible(false);
+        gasTank.body.enable = false;
+        
+        // Add a visual effect to show the gas tank collection
+        this.addGasTankEffect(player.x, player.y);
+    }
+
+    addCoinEffect(x, y) {
+        // Create a coin collection effect
+        const coinEffect = this.scene.add.graphics()
+            .lineStyle(2, 0xFFD700, 0.8) // Gold color
+            .strokeCircle(x, y, 20);
+        
+        // Animate the effect
+        this.scene.tweens.add({
+            targets: coinEffect,
+            scaleX: 1.5,
+            scaleY: 1.5,
+            alpha: 0,
+            duration: 300,
+            ease: 'Power1',
+            onComplete: () => coinEffect.destroy()
+        });
+    }
+
+    addGasTankEffect(x, y) {
+        // Create a gas tank collection effect
+        const gasTankEffect = this.scene.add.graphics()
+            .lineStyle(2, 0x00FF00, 0.8) // Green color
+            .strokeCircle(x, y, 25);
+        
+        // Animate the effect
+        this.scene.tweens.add({
+            targets: gasTankEffect,
+            scaleX: 1.3,
+            scaleY: 1.3,
+            alpha: 0,
+            duration: 400,
+            ease: 'Power1',
+            onComplete: () => gasTankEffect.destroy()
+        });
+    }
+
     onPlayerLand() {
+        this.debugLog('=== LANDING DETECTED ===', 'landing_detected');
+        this.debugLog(`Player state: isPulling=${this.scene.isPulling}, isAirborne=${this.scene.isAirborne}, hasBeenLaunched=${this.scene.hasBeenLaunched}, isLanded=${this.scene.isLanded}`, 'player_state');
+        
+        // Don't handle ground collision during pulling - let the player move freely
+        if (this.scene.isPulling) {
+            this.debugLog('Landing ignored - player is pulling', 'landing_ignored_pulling');
+            return;
+        }
+        
         // This callback only fires on collision with the ground group.
         // We only want to trigger the landing sequence if we were actually airborne.
         if (this.scene.isAirborne) {
-            this.scene.handleLanding();
+            this.debugLog('Player is airborne, checking launch status...', 'airborne_check');
+            // Only end the game if player has been properly launched (not just bounced)
+            if (this.scene.hasBeenLaunched) {
+                this.debugLog('Player has been launched - calling handleLanding()', 'handle_landing');
+                this.scene.handleLanding();
+            } else {
+                this.debugLog('Player airborne but not launched - resetting airborne state', 'reset_airborne');
+                // Just reset airborne state for bounce landings
+                this.scene.isAirborne = false;
+                this.scene.player.body.setVelocityY(0);
+                this.scene.player.body.setVelocityX(0); // Stop horizontal movement too
+            }
+        } else {
+            this.debugLog('Player not airborne on landing', 'not_airborne');
+            // If not airborne but still moving, stop all movement
+            if ((this.scene.player.body.velocity.x !== 0 || this.scene.player.body.velocity.y !== 0) && !this.scene.isLanded) {
+                this.scene.player.body.setVelocityX(0);
+                this.scene.player.body.setVelocityY(0);
+                this.debugLog('Stopping movement on ground collision', 'stop_movement');
+            }
+        }
+        
+        // Always ensure player is properly positioned on ground (but not during pulling)
+        if (!this.scene.isAirborne && !this.scene.isLanded && !this.scene.isPulling) {
+            // If player is touching ground but not in a proper state, stabilize
+            this.scene.player.body.setVelocityX(0);
+            this.scene.player.body.setVelocityY(0);
+            this.debugLog('Stabilizing player on ground', 'stabilize_player');
         }
     }
+    
+
 } 

@@ -38,13 +38,15 @@ export class GameScene extends Phaser.Scene {
         this.load.image('bufo', 'assets/bufo.png');
         this.load.image('bufo_rocket', 'assets/bufo_rocket.png');
         this.load.image('balloon', 'assets/balloon.png');
-        this.load.image('balloons_2', 'assets/balloon_2.png');
+        this.load.image('balloon_2', 'assets/balloon_2.png');
         this.load.image('birds', 'assets/birds.png');
         this.load.image('birds_2', 'assets/birds_2.png');
         this.load.image('hot_air_balloon', 'assets/balloon.png');
         this.load.image('plane', 'assets/birds.png');
         this.load.image('satellite', 'assets/satellite.png');
         this.load.image('martian', 'assets/martian.png');
+        this.load.image('coin', 'assets/coin.png');
+        this.load.image('gas_tank', 'assets/gas_tank.png');
         this.load.image('cloud', 'assets/cloud.png');
         this.load.image('cloud_2', 'assets/cloud_2.png');
         this.load.image('cloud_3', 'assets/cloud_3.png');
@@ -77,15 +79,18 @@ export class GameScene extends Phaser.Scene {
         this.uiSystem.createGameplayArea();
         this.uiSystem.createFloatingUI();
         
-        // Spawn objects after player is created
-        this.objectSpawner.spawnObjectsForCurrentZone();
-        this.objectSpawner.spawnClouds();
-        
-        // Setup collision detection with spawned objects
-        this.setupCollisionDetection();
+        // Spawn objects after player is created (with a small delay to ensure player exists)
+        this.time.delayedCall(100, () => {
+            this.objectSpawner.spawnObjectsForCurrentZone();
+            this.objectSpawner.spawnClouds();
+            this.objectSpawner.spawnCoinsAndGasTanks();
+            
+            // Setup collision detection with spawned objects
+            this.setupCollisionDetection();
+        });
         
         // Initialize UI text with current values
-        this.uiSystem.ui.materialsText.setText(this.upgradeSystem.getMaterials());
+        this.uiSystem.ui.coinsText.setText(this.upgradeSystem.getCoins());
         this.uiSystem.ui.dayCountText.setText(this.dayCount.toString());
     }
 
@@ -100,6 +105,12 @@ export class GameScene extends Phaser.Scene {
         if (this.objectSpawner.clouds) {
             this.physics.add.overlap(this.player, this.objectSpawner.clouds, (player, cloud) => this.collisionSystem.hitCloud(player, cloud), null, this);
         }
+        if (this.objectSpawner.coins) {
+            this.physics.add.overlap(this.player, this.objectSpawner.coins, (player, coin) => this.collisionSystem.hitCoin(player, coin), null, this);
+        }
+        if (this.objectSpawner.gasTanks) {
+            this.physics.add.overlap(this.player, this.objectSpawner.gasTanks, (player, gasTank) => this.collisionSystem.hitGasTank(player, gasTank), null, this);
+        }
     }
 
     update() {
@@ -108,14 +119,38 @@ export class GameScene extends Phaser.Scene {
         if (this.isPulling) {
             const pointer = this.input.activePointer;
             this.launchLine.clear();
-            this.launchLine.lineStyle(5, 0xffffff);
-            this.launchLine.lineBetween(this.startPoint.x, this.startPoint.y, pointer.x, pointer.y);
+            
+            // Draw elastic bands from launcher to player with better styling
+            this.launchLine.lineStyle(4, 0x4A90E2, 0.6); // Blue color instead of white
+            
+            // Use original player position for launcher anchor points (fixed position)
+            const launcherX = this.originalPlayerPosition.x;
+            const launcherY = this.originalPlayerPosition.y;
+            
+            // Left band from launcher to player
+            const launcherLeftX = launcherX - 70; // Left side of launcher
+            const launcherTopY = launcherY - 90; // Top of launcher
+            this.launchLine.lineBetween(launcherLeftX, launcherTopY, this.player.x, this.player.y);
+            
+            // Right band from launcher to player
+            const launcherRightX = launcherX + 70; // Right side of launcher
+            this.launchLine.lineBetween(launcherRightX, launcherTopY, this.player.x, this.player.y);
+            
+            // Draw pull direction indicator
+            this.launchLine.lineStyle(2, 0xFFFF00, 0.8); // Yellow direction indicator
+            this.launchLine.lineBetween(this.player.x, this.player.y, pointer.x, pointer.y);
+            
             this.launchZoneIndicator.clear();
         }
 
         // Only update bird wrapping every few frames
         if (frameCount === 0 && this.objectSpawner.birds && this.objectSpawner.birds.children.size > 0) {
             this.physics.world.wrap(this.objectSpawner.birds, 40);
+        }
+
+        // Update debug hitboxes only for moving objects (Bufo)
+        if (frameCount % 4 === 0) { // Only update every 4 frames (144 FPS / 4 = 36 FPS)
+            this.uiSystem.updateDebugHitboxes();
         }
 
         if (this.isAirborne) {
@@ -158,10 +193,8 @@ export class GameScene extends Phaser.Scene {
                 this.peakY = this.player.y;
             }
 
-            // Update rotation
-            if (this.time.now % GAME_CONSTANTS.PERFORMANCE.ROTATION_FREQUENCY === 0) {
-                this.player.angle += this.player.body.velocity.x * 0.05;
-            }
+            // Enhanced rotation based on velocity and direction
+            this.updatePlayerRotation();
 
             // Update camera only after cloud breach
             if (this.uiSystem.cloudBreached) {
@@ -185,23 +218,56 @@ export class GameScene extends Phaser.Scene {
         } else {
             this.uiSystem.altitudeText.setVisible(false);
             
-            if (!this.isLanded && !this.isPulling) {
+            // Keep player on platform when not airborne (but not during pulling)
+            if (!this.isLanded && !this.isPulling && !this.isAirborne) {
+                const platformY = this.groundLevel - 12; // Platform top surface
+                const targetY = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                
+                // If player is falling, stop them and position on platform
+                if (this.player.body.velocity.y > 0) {
+                    this.player.body.setVelocityY(0);
+                    this.player.y = targetY;
+                }
+                
+                // Show extended launch zone with larger indicator
                 this.launchZoneIndicator.clear();
-                this.launchZoneIndicator.lineStyle(2, 0xffffff, 0.3);
-                this.launchZoneIndicator.strokeCircle(this.player.x, this.player.y, 60);
+                this.launchZoneIndicator.lineStyle(3, 0x4A90E2, 0.3);
+                this.launchZoneIndicator.strokeCircle(this.player.x, this.player.y, 200); // Larger circle
+                
+                // Add subtle arrow pointing down to indicate pull direction
+                this.launchZoneIndicator.lineStyle(2, 0x4A90E2, 0.5);
+                this.launchZoneIndicator.lineBetween(this.player.x, this.player.y + 80, this.player.x, this.player.y + 160);
+                this.launchZoneIndicator.lineBetween(this.player.x - 15, this.player.y + 140, this.player.x, this.player.y + 160);
+                this.launchZoneIndicator.lineBetween(this.player.x + 15, this.player.y + 140, this.player.x, this.player.y + 160);
+                
+                // Add a subtle outer ring to show maximum pull range
+                this.launchZoneIndicator.lineStyle(1, 0x4A90E2, 0.2);
+                this.launchZoneIndicator.strokeCircle(this.player.x, this.player.y, 400); // Maximum pull range indicator
             } else {
                 this.launchZoneIndicator.clear();
+            }
+            
+            // Additional safety check: if player is not supposed to be airborne but is, fix it
+            // But only if we're not currently pulling and the player is actually on the ground
+            if (!this.hasBeenLaunched && this.isAirborne && !this.isPulling && this.player.y > this.groundLevel - 50) {
+                console.log('Safety check: Resetting unexpected airborne state');
+                this.isAirborne = false;
+                this.player.body.setVelocityY(0);
+                const platformY = this.groundLevel - 12;
+                this.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
             }
         }
     }
 
     handleRocketControls() {
         if (this.upgradeSystem.hasRocket()) {
-            const thrust = this.upgradeSystem.upgrades.rocket.thrust;
+            const rocketCapabilities = this.upgradeSystem.getRocketCapabilities();
+            const thrust = rocketCapabilities.thrust;
             const nudgeThrust = GAME_CONSTANTS.PLAYER.NUDGE_THRUST;
             let fuelConsumed = false;
 
-            if (this.keys.W.isDown) {
+            // Handle upward movement (W key) - only available in Tier 3
+            if (this.keys.W.isDown && rocketCapabilities.canMoveUp) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.y -= thrust;
                     fuelConsumed = true;
@@ -210,6 +276,8 @@ export class GameScene extends Phaser.Scene {
                     this.player.body.velocity.y -= nudgeThrust;
                 }
             }
+
+            // Handle downward movement (S key) - always available with rocket
             if (this.keys.S.isDown) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.y += thrust;
@@ -219,6 +287,8 @@ export class GameScene extends Phaser.Scene {
                     this.player.body.velocity.y += nudgeThrust;
                 }
             }
+
+            // Handle left movement (A key) - available in all tiers
             if (this.keys.A.isDown) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.x -= thrust;
@@ -228,6 +298,8 @@ export class GameScene extends Phaser.Scene {
                     this.player.body.velocity.x -= nudgeThrust;
                 }
             }
+
+            // Handle right movement (D key) - available in all tiers
             if (this.keys.D.isDown) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.x += thrust;
@@ -252,21 +324,42 @@ export class GameScene extends Phaser.Scene {
     }
 
     handleLanding() {
+        console.log('=== HANDLE LANDING CALLED ===');
+        console.log('Landing state before:', {
+            isAirborne: this.isAirborne,
+            isLanded: this.isLanded,
+            hasBeenLaunched: this.hasBeenLaunched
+        });
+        
         this.isAirborne = false;
         this.isLanded = true;
+
+        console.log('Landing state after:', {
+            isAirborne: this.isAirborne,
+            isLanded: this.isLanded
+        });
 
         this.cameras.main.pan(this.cameras.main.width / 2, this.cameras.main.height / 2, 250, 'Sine.easeInOut');
 
         this.player.body.stop();
-        this.player.setAngle(0);
+        this.player.setAngle(0); // Reset rotation when landing
         this.launchZoneIndicator.clear();
+        
+        // Hide fuel gauge when landing
+        this.uiSystem.hideFuelGauge();
 
         const airTime = (this.time.now - this.launchTime) / 1000;
         const distance = Math.max(0, this.startPoint.y - this.peakY);
-        const materialsEarned = GAME_CONSTANTS.REWARDS.BASE_MATERIALS + Math.floor(distance / GAME_CONSTANTS.REWARDS.DISTANCE_DIVISOR);
+        const coinsEarned = GAME_CONSTANTS.REWARDS.BASE_COINS + Math.floor(distance / GAME_CONSTANTS.REWARDS.DISTANCE_DIVISOR);
 
-        this.upgradeSystem.addMaterials(materialsEarned);
-        this.uiSystem.ui.materialsText.setText(this.upgradeSystem.getMaterials());
+        console.log('Landing results:', {
+            airTime: airTime,
+            distance: distance,
+            coinsEarned: coinsEarned
+        });
+
+        this.upgradeSystem.addCoins(coinsEarned);
+        this.uiSystem.ui.coinsText.setText(this.upgradeSystem.getCoins());
 
         this.uiSystem.ui.flightDistanceText.setText(`${Math.round(distance)} ft`);
         this.uiSystem.ui.airTimeText.setText(`${airTime.toFixed(1)}s`);
@@ -276,9 +369,13 @@ export class GameScene extends Phaser.Scene {
         } else {
             this.uiSystem.ui.endOfDayContainer.getByName('dayFailedText').setText(`Day ${this.dayCount} Failed`);
         }
-        this.uiSystem.ui.endOfDayContainer.getByName('materialsEarnedText').setText(`You salvaged ${materialsEarned} materials.`);
+        this.uiSystem.ui.endOfDayContainer.getByName('coinsEarnedText').setText(`You salvaged ${coinsEarned} coins.`);
         this.uiSystem.ui.endOfDayContainer.setVisible(true);
+        
+        console.log('End of day UI should now be visible');
     }
+
+
 
     buyUpgrade(key) {
         const result = this.upgradeSystem.buyUpgrade(key);
@@ -286,10 +383,17 @@ export class GameScene extends Phaser.Scene {
             this.maxFuel = result.maxFuel;
             this.fuel = result.fuel;
             this.player.setTexture(result.texture);
+            
+            // Log rocket upgrade information
+            if (key === 'rocket') {
+                const rocketCapabilities = this.upgradeSystem.getRocketCapabilities();
+                console.log(`Rocket upgraded to Tier ${rocketCapabilities.level}!`);
+                console.log(`Capabilities: Upward movement: ${rocketCapabilities.canMoveUp}, Fuel: ${rocketCapabilities.fuelCapacity}, Thrust: ${rocketCapabilities.thrust}`);
+            }
         }
         this.uiSystem.updateUpgradeUI();
         this.uiSystem.updateLauncherVisualization();
-        this.uiSystem.ui.materialsText.setText(this.upgradeSystem.getMaterials());
+        this.uiSystem.ui.coinsText.setText(this.upgradeSystem.getCoins());
     }
 
     restartDay() {
@@ -299,8 +403,21 @@ export class GameScene extends Phaser.Scene {
         this.uiSystem.ui.dayCountText.setText(this.dayCount);
 
         this.objectSpawner.cleanupOldAssets();
+        
+        // Reset input state to prevent glitch where game launches automatically
+        this.input.keyboard.resetKeys();
+        // Set a flag to prevent immediate launches after restart
+        this.justRestarted = true;
+        this.time.delayedCall(500, () => {
+            this.justRestarted = false;
+        });
 
         this.isLanded = false;
+        this.isAirborne = false; // Reset airborne state
+        this.isPulling = false; // Reset pulling state
+        this.launchCount = 0; // Reset launch count for new day
+        this.hasBeenLaunched = false; // Track if player has been properly launched (not just bounced)
+        this.uiSystem.ui.launchCountText.setText(this.launchCount);
         this.player.setAngle(0);
         this.player.setTexture(this.upgradeSystem.hasRocket() ? 'bufo_rocket' : 'bufo');
         this.player.setPosition(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
@@ -310,93 +427,249 @@ export class GameScene extends Phaser.Scene {
         if (this.uiSystem.titleContainer) {
             this.uiSystem.titleContainer.setVisible(true);
         }
-        if (this.uiSystem.bottomCloudCover) {
-            this.uiSystem.bottomCloudCover.setVisible(false);
-            this.uiSystem.bottomCloudCover.y = this.cameras.main.height;
-        }
 
         if (this.upgradeSystem.hasRocket()) {
-            this.maxFuel = 100;
+            const rocketCapabilities = this.upgradeSystem.getRocketCapabilities();
+            this.maxFuel = rocketCapabilities.fuelCapacity;
             this.fuel = this.maxFuel;
         }
 
         this.objectSpawner.currentAltitudeZone = null;
         this.objectSpawner.spawnObjectsForCurrentZone();
         this.objectSpawner.spawnClouds();
+        this.objectSpawner.spawnCoinsAndGasTanks();
 
+        // Reset player physics completely
         this.player.body.stop();
+        this.player.body.setGravityY(0);
+        this.player.body.setVelocity(0, 0);
+        this.player.body.setImmovable(false);
+        
+        // Clear any existing launch lines and indicators
+        if (this.launchLine) {
+            this.launchLine.clear();
+        }
+        if (this.launchZoneIndicator) {
+            this.launchZoneIndicator.clear();
+        }
+        
+        // Ensure launch line graphics are properly set up
+        if (!this.launchLine) {
+            this.launchLine = this.add.graphics();
+        }
+        if (!this.launchZoneIndicator) {
+            this.launchZoneIndicator = this.add.graphics();
+        }
+        
+        // Ensure launch lines are visible and on top
+        this.launchLine.setDepth(1000);
+        this.launchZoneIndicator.setDepth(1000);
+        
+        // Reset player state for new day
+        this.uiSystem.resetPlayerForNewDay();
+        
+        // Clear debug hitboxes on game reset
+        this.uiSystem.clearAllDebugHitboxes();
+        
+
+        
+        // Reset position references for pulling
+        this.originalPlayerPosition = new Phaser.Math.Vector2(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
+        this.startPoint = new Phaser.Math.Vector2(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
+        
+        console.log('Day restarted! Player state:', {
+            isAirborne: this.isAirborne,
+            isLanded: this.isLanded,
+            isPulling: this.isPulling,
+            hasBeenLaunched: this.hasBeenLaunched,
+            launchCount: this.launchCount,
+            playerX: this.player.x,
+            playerY: this.player.y
+        });
         
         // Update launcher visualization
         this.uiSystem.updateLauncherVisualization();
+        
+        // Randomize grass for the new day
+        this.randomizeGrassForNewDay();
     }
 
     debugLaunch() {
+        console.log('=== DEBUG LAUNCH ACTIVATED ===');
+        
+        // Calculate test power based on current upgrades
         let testPower = 0;
+        let upgradeInfo = [];
+        
         for (const key in this.upgradeSystem.upgrades) {
             const upgrade = this.upgradeSystem.upgrades[key];
-            const halfLevel = Math.ceil(upgrade.maxLevel / 2);
-            const powerAtHalf = upgrade.power + ((halfLevel - 1) * upgrade.increment);
-            testPower += powerAtHalf;
+            
+            if (key === 'rocket') {
+                // Rocket is a special upgrade with thrust instead of power
+                const rocketPower = upgrade.level > 0 ? upgrade.thrust : 0;
+                testPower += rocketPower;
+                upgradeInfo.push(`${key}: ${rocketPower.toFixed(1)}`);
+            } else {
+                // Standard upgrades with power and increment
+                const halfLevel = Math.ceil(upgrade.maxLevel / 2);
+                const powerAtHalf = upgrade.power + ((halfLevel - 1) * upgrade.increment);
+                testPower += powerAtHalf;
+                upgradeInfo.push(`${key}: ${powerAtHalf.toFixed(1)}`);
+            }
+        }
+        
+        console.log('Test power calculation:', upgradeInfo.join(', '));
+        console.log('Total test power:', testPower.toFixed(1));
+        
+        // Safety check for NaN values
+        if (isNaN(testPower)) {
+            console.warn('Test power is NaN, using default value of 10');
+            testPower = 10;
         }
 
+        // Reset game state for test launch
         this.isLanded = false;
         this.isPulling = false;
+        this.isAirborne = false;
+        
+        // Hide UI elements
         this.uiSystem.ui.endOfDayContainer.setVisible(false);
         this.uiSystem.upgradeContainer.setVisible(false);
+        
+        // Reset player physics and position
         this.player.body.stop();
+        this.player.body.setGravityY(300); // Use default gravity value
+        this.player.body.setVelocity(0, 0);
         this.player.setPosition(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
         this.player.setAngle(0);
+        
+        // Reset camera
         this.cameras.main.pan(this.cameras.main.width / 2, this.cameras.main.height / 2, 100, 'Sine.easeInOut');
+        
+        // Clear any existing launch lines
+        if (this.launchLine) {
+            this.launchLine.clear();
+        }
+        if (this.launchZoneIndicator) {
+            this.launchZoneIndicator.clear();
+        }
 
-        const launchVector = new Phaser.Math.Vector2(0, -200);
-        this.player.setVelocity(launchVector.x * testPower, launchVector.y * testPower);
+        // Apply test launch velocity with multiple test scenarios
+        const testScenarios = [
+            { name: 'Vertical Launch', x: 0, y: -200 },
+            { name: 'Diagonal Launch', x: 50, y: -200 },
+            { name: 'High Power Launch', x: 0, y: -300 },
+            { name: 'Low Power Launch', x: 0, y: -100 }
+        ];
+        
+        // Cycle through test scenarios based on launch count
+        const scenarioIndex = (this.launchCount % testScenarios.length);
+        const scenario = testScenarios[scenarioIndex];
+        
+        const launchVector = new Phaser.Math.Vector2(
+            scenario.x * testPower, 
+            scenario.y * testPower
+        );
+        
+        console.log(`Test scenario: ${scenario.name}`);
+        console.log('Launch velocity:', launchVector.x.toFixed(1), launchVector.y.toFixed(1));
+        
+        this.player.setVelocity(launchVector.x, launchVector.y);
 
+        // Set airborne state
         this.isAirborne = true;
+        console.log('Setting isAirborne = true during debug launch');
         this.launchTime = this.time.now;
         this.peakY = this.player.y;
         this.launchCount++;
+        
+        // Update UI
         this.uiSystem.ui.launchCountText.setText(this.launchCount);
         this.uiSystem.ui.flightDistanceText.setText('...');
         this.uiSystem.ui.airTimeText.setText('...');
+        
+        // Reset fuel if rocket is available
+        if (this.upgradeSystem.hasRocket()) {
+            this.maxFuel = 100;
+            this.fuel = this.maxFuel;
+            console.log('Rocket fuel reset to:', this.fuel);
+        }
+        
+        console.log('Debug launch completed!');
+        console.log('Player state:', {
+            position: { x: this.player.x.toFixed(1), y: this.player.y.toFixed(1) },
+            velocity: { x: this.player.body.velocity.x.toFixed(1), y: this.player.body.velocity.y.toFixed(1) },
+            isAirborne: this.isAirborne,
+            launchCount: this.launchCount
+        });
     }
 
     createSkyLayers() {
         const worldWidth = this.cameras.main.width;
         const groundY = this.groundLevel;
-        const sunsetY = GAME_CONSTANTS.SKY.SUNSET_Y;
-        const spaceY = GAME_CONSTANTS.SKY.SPACE_Y;
         const worldTopY = GAME_CONSTANTS.WORLD_TOP;
 
-        // Create beautiful gradient sky layers using graphics
-        const graphics = this.add.graphics();
+        // Remove old segmented background
+        // Create a single smooth vertical gradient background
+        this.createSmoothSkyGradient(worldWidth, groundY, worldTopY);
 
-        // Layer 1: Ground to Sunset (Sky Blue to Light Blue gradient)
-        const skyZoneHeight = groundY - sunsetY;
-        graphics.fillGradientStyle(0x87CEEB, 0x87CEEB, 0x4682B4, 0x4682B4, 1);
-        graphics.fillRect(0, sunsetY, worldWidth, skyZoneHeight);
+        // Create twinkling stars in the black space area
+        this.createTwinklingStars(worldTopY, groundY - 10000);
+    }
 
-        // Layer 2: Sunset to Space (Orange to Purple gradient)
-        const sunsetZoneHeight = sunsetY - spaceY;
-        graphics.fillGradientStyle(0xFFA07A, 0xFFA07A, 0x8A2BE2, 0x8A2BE2, 1);
-        graphics.fillRect(0, spaceY, worldWidth, sunsetZoneHeight);
-
-        // Layer 3: Deep Space (Dark Blue to Black gradient)
-        const spaceZoneHeight = spaceY - worldTopY;
-        graphics.fillGradientStyle(0x483D8B, 0x483D8B, 0x000000, 0x000000, 1);
-        graphics.fillRect(0, worldTopY, worldWidth, spaceZoneHeight);
-
+    createSmoothSkyGradient(worldWidth, groundY, worldTopY) {
+        // Define color stops (bottom to top)
+        const colorStops = [
+            0xFFF8DC, // Cornsilk
+            0xFFE4B5, // Moccasin
+            0xFFDAB9, // Peach Puff
+            0xFFB6C1, // Light Pink
+            0xDDA0DD, // Plum
+            0x87CEEB, // Sky Blue
+            0x191970, // Midnight Blue
+            0x000000  // Black
+        ];
+        const totalHeight = groundY - worldTopY;
+        const stripHeight = 4; // px per strip for performance
+        const steps = Math.ceil(totalHeight / stripHeight);
+        const graphics = this.add.graphics({x: 0, y: worldTopY});
         graphics.setDepth(-2);
-
-        // Create twinkling stars in space
-        this.createTwinklingStars(worldTopY, spaceY);
+        for (let i = 0; i < steps; i++) {
+            const y = i * stripHeight;
+            const t = y / (totalHeight - 1);
+            const scaled = t * (colorStops.length - 1);
+            const lower = Math.floor(scaled);
+            const upper = Math.ceil(scaled);
+            const localT = scaled - lower;
+            const c1 = Phaser.Display.Color.ValueToColor(colorStops[lower]);
+            const c2 = Phaser.Display.Color.ValueToColor(colorStops[upper]);
+            const interp = Phaser.Display.Color.Interpolate.ColorWithColor(c1, c2, 1, 100, localT * 100);
+            const color = Phaser.Display.Color.GetColor(interp.r, interp.g, interp.b);
+            graphics.fillStyle(color, 1);
+            graphics.fillRect(0, y, worldWidth, stripHeight);
+        }
     }
 
     createTwinklingStars(spaceTop, spaceBottom) {
-        // Create multiple star layers for depth effect
+        // Enhanced star system with 4 layers and 205 total stars
         const starLayers = [
-            { count: 50, size: 2, alpha: 0.8, speed: 2000 }, // Background stars
-            { count: 30, size: 3, alpha: 0.9, speed: 1500 }, // Mid stars
-            { count: 20, size: 4, alpha: 1.0, speed: 1000 }  // Foreground stars
+            { count: 100, size: 1, alpha: 0.6, speed: 3000 }, // Distant background stars
+            { count: 70, size: 2, alpha: 0.8, speed: 2000 },  // Background stars
+            { count: 25, size: 3, alpha: 0.9, speed: 1500 },  // Mid stars
+            { count: 10, size: 4, alpha: 1.0, speed: 1000 }   // Foreground stars
+        ];
+
+        // Enhanced color variation for stars with slight variations
+        const starColors = [
+            0xFFFFFF, // Pure White
+            0xFFFFE0, // Light Yellow
+            0xFFFACD, // Lemon Chiffon
+            0xF0F8FF, // Alice Blue
+            0xE6E6FA, // Lavender
+            0xFFF8DC, // Cornsilk
+            0xFFF5EE, // Seashell
+            0xF0FFFF, // Azure
+            0xF5F5DC  // Beige
         ];
 
         starLayers.forEach((layer, layerIndex) => {
@@ -407,59 +680,147 @@ export class GameScene extends Phaser.Scene {
                 const x = Phaser.Math.Between(0, this.cameras.main.width);
                 const y = Phaser.Math.Between(spaceTop, spaceBottom);
                 
-                // Create star shape
-                star.fillStyle(0xFFFFFF, layer.alpha);
+                // Enhanced color variation for stars
+                const starColor = Phaser.Math.RND.pick(starColors);
+                
+                star.fillStyle(starColor, layer.alpha);
                 star.fillCircle(x, y, layer.size);
                 
                 star.setDepth(-1 + (layerIndex * 0.1)); // Slight depth variation
                 
-                // Twinkling animation
+                // Enhanced twinkling animation with improved scaling effects
                 this.tweens.add({
                     targets: star,
-                    alpha: 0.3,
+                    alpha: 0.2,
+                    scaleX: 0.6,
+                    scaleY: 0.6,
                     duration: layer.speed,
                     ease: 'Sine.easeInOut',
                     yoyo: true,
                     repeat: -1,
                     delay: Phaser.Math.Between(0, layer.speed) // Random start time
                 });
+
+                // Add subtle rotation for more dynamic effect
+                this.tweens.add({
+                    targets: star,
+                    angle: 360,
+                    duration: layer.speed * 2,
+                    ease: 'Linear',
+                    repeat: -1,
+                    delay: Phaser.Math.Between(0, layer.speed * 2)
+                });
             }
         });
+
+        console.log(`Created enhanced star system with ${starLayers.reduce((sum, layer) => sum + layer.count, 0)} total stars across ${starLayers.length} layers`);
     }
 
     createGrassTexture() {
-        if (!this.textures.exists('grass')) {
-            const graphics = this.add.graphics();
-            
-            // Create a more detailed grass texture with multiple shades
-            const width = 100;
-            const height = 64;
-            
-            // Base grass color
-            graphics.fillStyle(0x228B22);
-            graphics.fillRect(0, 0, width, height);
-            
-            // Add darker grass patches for variety
-            graphics.fillStyle(0x1B5E20);
-            for (let i = 0; i < 8; i++) {
-                const x = Phaser.Math.Between(0, width - 10);
-                const y = Phaser.Math.Between(0, height - 10);
-                const size = Phaser.Math.Between(5, 15);
-                graphics.fillRect(x, y, size, size);
+        // Define grass color themes - each theme has cohesive colors
+        const grassThemes = [
+            {
+                name: 'forest',
+                base: 0x228B22,      // Forest green
+                dark: 0x1B5E20,      // Dark forest green
+                light: 0x32CD32,     // Lime green
+                detail: 0x006400     // Dark green details
+            },
+            {
+                name: 'meadow',
+                base: 0x2E8B57,      // Sea green
+                dark: 0x006400,      // Dark green
+                light: 0x90EE90,     // Light green
+                detail: 0x228B22     // Medium green details
+            },
+            {
+                name: 'spring',
+                base: 0x32CD32,      // Lime green
+                dark: 0x228B22,      // Forest green
+                light: 0xADFF2F,     // Green yellow
+                detail: 0x1B5E20     // Dark green details
+            },
+            {
+                name: 'emerald',
+                base: 0x00A86B,      // Emerald green
+                dark: 0x006400,      // Dark green
+                light: 0x7FFF00,     // Chartreuse
+                detail: 0x228B22     // Forest green details
             }
-            
-            // Add lighter grass highlights
-            graphics.fillStyle(0x32CD32);
-            for (let i = 0; i < 6; i++) {
-                const x = Phaser.Math.Between(0, width - 8);
-                const y = Phaser.Math.Between(0, height - 8);
-                const size = Phaser.Math.Between(3, 8);
-                graphics.fillRect(x, y, size, size);
+        ];
+        
+        // Select one random theme for the entire day
+        const selectedTheme = Phaser.Math.RND.pick(grassThemes);
+        console.log(`Selected grass theme: ${selectedTheme.name}`);
+        
+        // Create multiple grass variations using the same theme
+        const grassVariations = ['grass', 'grass2', 'grass3', 'grass4'];
+        
+        grassVariations.forEach((textureName, index) => {
+            if (!this.textures.exists(textureName)) {
+                const graphics = this.add.graphics();
+                
+                // Create a more detailed grass texture with multiple shades
+                const width = 100;
+                const height = 64;
+                
+                // Use the selected theme's base color
+                graphics.fillStyle(selectedTheme.base);
+                graphics.fillRect(0, 0, width, height);
+                
+                // Add darker grass patches with more variety (same theme)
+                graphics.fillStyle(selectedTheme.dark);
+                
+                // Vary the number and size of dark patches
+                const darkPatchCount = Phaser.Math.Between(6, 12);
+                for (let i = 0; i < darkPatchCount; i++) {
+                    const x = Phaser.Math.Between(0, width - 15);
+                    const y = Phaser.Math.Between(0, height - 15);
+                    const size = Phaser.Math.Between(4, 18);
+                    const shape = Phaser.Math.Between(0, 2); // 0=rect, 1=circle, 2=ellipse
+                    
+                    if (shape === 0) {
+                        graphics.fillRect(x, y, size, size);
+                    } else if (shape === 1) {
+                        graphics.fillCircle(x + size/2, y + size/2, size/2);
+                    } else {
+                        graphics.fillEllipse(x + size/2, y + size/2, size, size * 0.7);
+                    }
+                }
+                
+                // Add lighter grass highlights with more variety (same theme)
+                graphics.fillStyle(selectedTheme.light);
+                
+                const lightPatchCount = Phaser.Math.Between(4, 10);
+                for (let i = 0; i < lightPatchCount; i++) {
+                    const x = Phaser.Math.Between(0, width - 10);
+                    const y = Phaser.Math.Between(0, height - 10);
+                    const size = Phaser.Math.Between(2, 12);
+                    const shape = Phaser.Math.Between(0, 2);
+                    
+                    if (shape === 0) {
+                        graphics.fillRect(x, y, size, size);
+                    } else if (shape === 1) {
+                        graphics.fillCircle(x + size/2, y + size/2, size/2);
+                    } else {
+                        graphics.fillEllipse(x + size/2, y + size/2, size, size * 0.6);
+                    }
+                }
+                
+                // Add some small detail elements (grass blades, small dots) - same theme
+                graphics.fillStyle(selectedTheme.detail);
+                const detailCount = Phaser.Math.Between(8, 15);
+                for (let i = 0; i < detailCount; i++) {
+                    const x = Phaser.Math.Between(0, width - 4);
+                    const y = Phaser.Math.Between(0, height - 4);
+                    const size = Phaser.Math.Between(1, 3);
+                    graphics.fillCircle(x, y, size);
+                }
+                
+                graphics.generateTexture(textureName, width, height);
+                graphics.destroy();
             }
-            
-            graphics.generateTexture('grass', width, height);
-            graphics.destroy();
-        }
+        });
     }
 
     showZoneTransition(zoneName) {
@@ -470,5 +831,31 @@ export class GameScene extends Phaser.Scene {
         // This method is called when Bufo breaches the clouds
         // The camera will start tracking the player from this point
         console.log('Camera tracking started - Bufo has breached the clouds!');
+    }
+
+    randomizeGrassForNewDay() {
+        // Clear existing grass textures to force regeneration
+        const grassVariations = ['grass', 'grass2', 'grass3', 'grass4'];
+        grassVariations.forEach(textureName => {
+            if (this.textures.exists(textureName)) {
+                this.textures.remove(textureName);
+            }
+        });
+        
+        // Regenerate grass textures with new randomization
+        this.createGrassTexture();
+        
+        // Recreate grass tiles with new textures
+        this.uiSystem.recreateGrassTiles();
+        
+        console.log('Grass randomized for new day!');
+    }
+
+    updatePlayerRotation() {
+        if (!this.player || !this.isAirborne) return;
+
+        // Simple spinning animation - just rotate continuously
+        const spinSpeed = 2; // Degrees per frame
+        this.player.angle += spinSpeed;
     }
 } 

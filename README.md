@@ -6,13 +6,13 @@
 
 ## 🎯 About the Game
 
-Bufonaut is a charming physics-based game where you launch a cute character (Bufo) as high as possible using a slingshot. Navigate through different altitude zones, collect materials, and upgrade your launcher to reach even greater heights!
+Bufonaut is a charming physics-based game where you launch a cute character (Bufo) as high as possible using a slingshot. Navigate through different altitude zones, collect coins, and upgrade your launcher to reach even greater heights!
 
 ### 🎮 Key Features
 - **Slingshot launching** with upgradeable power
 - **Altitude-based zones** with different objects and challenges
 - **Rocket controls** for precise navigation when airborne
-- **Upgrade system** with materials economy
+- **Upgrade system** with coins economy
 - **Beautiful cloud-themed UI** with animated elements
 - **Performance optimized** for smooth gameplay
 
@@ -20,8 +20,8 @@ Bufonaut is a charming physics-based game where you launch a cute character (Buf
 
 1. **Launch**: Click and drag to pull back the slingshot, then release to launch Bufo
 2. **Navigate**: Use WASD keys to control Bufo when airborne (if you have rocket upgrades)
-3. **Collect**: Gather materials from various objects in the sky
-4. **Upgrade**: Use materials to upgrade your launcher between attempts
+3. **Collect**: Gather coins from various objects in the sky
+4. **Upgrade**: Use coins to upgrade your launcher between attempts
 5. **Reach Higher**: Try to beat your previous altitude records!
 
 ## 🚀 Quick Start
@@ -161,7 +161,7 @@ python -m http.server 8080
 - **Slingshot launching** with upgradeable power
 - **Altitude-based zones** with different objects
 - **Rocket controls** for precise navigation
-- **Upgrade system** with materials economy
+- **Upgrade system** with coins economy
 - **Asset age tracking** to prevent clutter
 - **Performance optimized** for smooth gameplay
 
