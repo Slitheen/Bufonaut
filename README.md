@@ -1,6 +1,52 @@
-# Bufonaut - Modular Game Structure
+# 🚀 Bufonaut - Reach for the Sky!
 
-## 🎉 Migration Complete!
+**A fun physics-based launching game where you help Bufo reach new heights!**
+
+[🎮 Play Now](https://slitheen.github.io/Bufonaut/) | [📖 How to Play](#how-to-play) | [🛠️ Development](#development)
+
+## 🎯 About the Game
+
+Bufonaut is a charming physics-based game where you launch a cute character (Bufo) as high as possible using a slingshot. Navigate through different altitude zones, collect materials, and upgrade your launcher to reach even greater heights!
+
+### 🎮 Key Features
+- **Slingshot launching** with upgradeable power
+- **Altitude-based zones** with different objects and challenges
+- **Rocket controls** for precise navigation when airborne
+- **Upgrade system** with materials economy
+- **Beautiful cloud-themed UI** with animated elements
+- **Performance optimized** for smooth gameplay
+
+## 🎮 How to Play
+
+1. **Launch**: Click and drag to pull back the slingshot, then release to launch Bufo
+2. **Navigate**: Use WASD keys to control Bufo when airborne (if you have rocket upgrades)
+3. **Collect**: Gather materials from various objects in the sky
+4. **Upgrade**: Use materials to upgrade your launcher between attempts
+5. **Reach Higher**: Try to beat your previous altitude records!
+
+## 🚀 Quick Start
+
+### **Play Online**
+Simply visit: **[https://slitheen.github.io/Bufonaut/](https://slitheen.github.io/Bufonaut/)**
+
+### **Run Locally**
+```bash
+# Clone the repository
+git clone https://github.com/Slitheen/Bufonaut.git
+cd Bufonaut
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Open http://localhost:8080 in your browser
+```
+
+## 🏗️ Development
+
+### **Modular Game Structure**
 
 The game has been successfully refactored from a single 1700-line file into a clean, modular structure:
 
@@ -136,4 +182,29 @@ python -m http.server 8080
 - Check that all systems are properly initialized in `GameScene.js`
 - Verify collision detection is set up correctly
 
-The modular structure is now ready for development! 🚀 
+The modular structure is now ready for development! 🚀
+
+## 🌐 Hosting
+
+This game is hosted on **GitHub Pages** and is automatically deployed whenever changes are pushed to the main branch.
+
+- **Live Game**: [https://slitheen.github.io/Bufonaut/](https://slitheen.github.io/Bufonaut/)
+- **Repository**: [https://github.com/Slitheen/Bufonaut](https://github.com/Slitheen/Bufonaut)
+
+### **Easy Deployment**
+Use the included `deploy.bat` script for quick updates:
+```bash
+./deploy.bat
+```
+
+## 🤝 Contributing
+
+Feel free to fork this project and submit pull requests! This is a great project for learning game development with Phaser 3 and modular JavaScript architecture.
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+---
+
+**Made with ❤️ using Phaser 3 and modern JavaScript** 
