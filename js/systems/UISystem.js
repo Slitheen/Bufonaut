@@ -9,6 +9,15 @@ export class UISystem {
         this.fuelGauge = null;
         this.launcherVisualization = null;
         
+        // Joystick system for mobile controls
+        this.joystick = null;
+        this.joystickBase = null;
+        this.joystickThumb = null;
+        this.joystickActive = false;
+        this.joystickDirection = { x: 0, y: 0 };
+        this.joystickRadius = 60;
+        this.joystickBaseRadius = 70;
+        
         // Debug system
         this.debugMenu = null;
         this.debugHitboxes = {
@@ -69,22 +78,26 @@ export class UISystem {
         const cardY = y - 30;
         
         const cardBg = this.scene.add.rectangle(cardX + cardWidth/2, cardY + cardHeight/2, cardWidth, cardHeight, 0x34495e, 0.3);
+        cardBg.setDepth(2500); // High depth for UI elements
         
-        this.scene.add.text(labelX, y, label, { 
+        const labelText = this.scene.add.text(labelX, y, label, { 
             fontSize: GAME_CONSTANTS.UI_SCALE.STAT_FONT,
             fill: UI_THEME.textSecondary,
             fontFamily: 'Arial, sans-serif'
         }).setOrigin(0, 0.5);
+        labelText.setDepth(2501); // Higher than background
     }
 
     createStatValue(value, x, y) {
-        return this.scene.add.text(x, y, value, { 
+        const text = this.scene.add.text(x, y, value, { 
             fontSize: GAME_CONSTANTS.UI_SCALE.STAT_FONT,
             fill: UI_THEME.text,
             fontFamily: 'Arial, sans-serif',
             stroke: UI_THEME.primary,
             strokeThickness: 1
         }).setOrigin(0, 0.5);
+        text.setDepth(2501); // High depth for UI text
+        return text;
     }
 
     createGameplayArea() {
@@ -158,23 +171,99 @@ export class UISystem {
             
             // Setup platform collision
             if (this.platformBody) {
+                // Add collision cooldown and state tracking to prevent spam
+                let lastCollisionTime = 0;
+                let collisionCount = 0;
+                let lastVelocityY = 0;
+                const collisionCooldown = 200; // Increased to 200ms cooldown
+                const maxCollisions = 5; // Max collisions before forcing stabilization
+                
                 this.scene.physics.add.collider(this.scene.player, this.platformBody, () => {
-                    console.log('=== PLATFORM COLLISION DETECTED ===');
-                    console.log('Platform collision state:', {
-                        isPulling: this.scene.isPulling,
-                        isAirborne: this.scene.isAirborne,
-                        hasBeenLaunched: this.scene.hasBeenLaunched,
-                        velocityY: this.scene.player.body.velocity.y
-                    });
+                    const now = Date.now();
+                    const currentVelocityY = this.scene.player.body.velocity.y;
+                    const currentVelocityX = this.scene.player.body.velocity.x;
+                    
+                    // Skip if too soon since last collision
+                    if (now - lastCollisionTime < collisionCooldown) {
+                        return;
+                    }
+                    
+                    // Track collision patterns
+                    if (Math.abs(currentVelocityY - lastVelocityY) < 1) {
+                        collisionCount++;
+                    } else {
+                        collisionCount = 0;
+                    }
+                    lastVelocityY = currentVelocityY;
+                    lastCollisionTime = now;
                     
                     // Don't interfere if player is pulling or if we just restarted the day
                     if (this.scene.isPulling || this.scene.isLanded) {
-                        console.log('Platform collision ignored - player is pulling or just landed');
+                        return;
+                    }
+                    
+                    // Check if player is actually on the platform (very small velocities and near platform)
+                    const isOnPlatform = Math.abs(currentVelocityY) < 2 && 
+                                       Math.abs(currentVelocityX) < 2 && 
+                                       this.scene.player.y > this.scene.groundLevel - 25;
+                    
+                    // If player is marked as airborne but actually on platform, reset their state
+                    if (this.scene.isAirborne && isOnPlatform) {
+                        console.log('Player marked as airborne but actually on platform - resetting state');
+                        this.scene.isAirborne = false;
+                        this.scene.hasBeenLaunched = false;
+                        this.scene.player.body.setVelocity(0, 0);
+                        this.scene.player.body.setGravityY(0); // Disable gravity
+                        const platformY = this.scene.groundLevel - 12;
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                        this.scene.player.setAngle(0);
+                        collisionCount = 0;
+                        return;
+                    }
+                    
+                    // If player is clearly on the platform and not moving, don't process collision
+                    if (isOnPlatform && !this.scene.isAirborne && !this.scene.isPulling) {
+                        // Player is stable on platform, no need to process collision
+                        return;
+                    }
+                    
+                    // Only log meaningful collisions or when we need to force stabilization
+                    const isSignificantCollision = this.scene.isAirborne || 
+                                                  Math.abs(currentVelocityY) > 10 ||
+                                                  Math.abs(currentVelocityX) > 10 ||
+                                                  collisionCount >= maxCollisions;
+                    
+                    if (isSignificantCollision) {
+                        console.log('Platform collision:', {
+                            isPulling: this.scene.isPulling,
+                            isAirborne: this.scene.isAirborne,
+                            hasBeenLaunched: this.scene.hasBeenLaunched,
+                            velocityY: currentVelocityY.toFixed(2),
+                            velocityX: currentVelocityX.toFixed(2),
+                            collisionCount: collisionCount,
+                            isOnPlatform: isOnPlatform
+                        });
+                    }
+                    
+                    // Force stabilization if too many similar collisions
+                    if (collisionCount >= maxCollisions) {
+                        console.log('Forcing stabilization due to collision spam');
+                        this.scene.player.body.setVelocityX(0);
+                        this.scene.player.body.setVelocityY(0);
+                        const platformY = this.scene.groundLevel - 12;
+                        this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
+                        this.scene.player.x = this.scene.initialPlayerPosition.x;
+                        // Reset airborne state if we're forcing stabilization
+                        this.scene.isAirborne = false;
+                        this.scene.hasBeenLaunched = false;
+                        this.scene.player.body.setGravityY(0);
+                        collisionCount = 0;
                         return;
                     }
                     
                     // If player is airborne and has been properly launched and is falling with significant velocity, end the game
-                    if (this.scene.isAirborne && this.scene.hasBeenLaunched && this.scene.player.body.velocity.y > 5) {
+                    if (this.scene.isAirborne && this.scene.hasBeenLaunched && currentVelocityY > 5) {
                         console.log('Proper landing detected - ending game');
                         this.scene.handleLanding();
                     } else if (this.scene.isAirborne && !this.scene.hasBeenLaunched) {
@@ -189,39 +278,39 @@ export class UISystem {
                         this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
                         this.scene.player.x = this.scene.initialPlayerPosition.x;
                         this.scene.player.setAngle(0);
-                        console.log('Player reset for relaunch');
-                    } else if (this.scene.player.body.velocity.y > 5 && !this.scene.isPulling) {
+                        collisionCount = 0;
+                    } else if (currentVelocityY > 5 && !this.scene.isPulling) {
                         // Just stop falling and position on platform if not a real landing and not pulling
                         this.scene.player.body.setVelocityY(0);
                         this.scene.player.body.setVelocityX(0); // Stop horizontal movement too
                         const platformY = this.scene.groundLevel - 12; // Platform top surface
                         this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
                         this.scene.player.x = this.scene.initialPlayerPosition.x; // Keep centered
-                        console.log('Stopped falling and positioned on platform');
-                    } else if (this.scene.player.body.velocity.y < -5 && this.scene.player.y > this.scene.groundLevel - 20 && !this.scene.isPulling) {
+                        collisionCount = 0;
+                    } else if (currentVelocityY < -5 && this.scene.player.y > this.scene.groundLevel - 20 && !this.scene.isPulling) {
                         // If player is moving upward but still near platform, stop them (but not during pulling)
                         this.scene.player.body.setVelocityY(0);
                         this.scene.player.body.setVelocityX(0);
                         const platformY = this.scene.groundLevel - 12;
                         this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
                         this.scene.player.x = this.scene.initialPlayerPosition.x;
-                        console.log('Stopped upward movement near platform');
-                    } else if (this.scene.player.body.velocity.x !== 0 && this.scene.player.y > this.scene.groundLevel - 25 && !this.scene.isPulling) {
+                        collisionCount = 0;
+                    } else if (Math.abs(currentVelocityX) > 0.1 && this.scene.player.y > this.scene.groundLevel - 25 && !this.scene.isPulling) {
                         // If player is sliding horizontally near platform, stop them immediately (but not during pulling)
                         this.scene.player.body.setVelocityX(0);
                         this.scene.player.body.setVelocityY(0);
                         const platformY = this.scene.groundLevel - 12;
                         this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
                         this.scene.player.x = this.scene.initialPlayerPosition.x;
-                        console.log('Stopped horizontal sliding near platform');
-                    } else if (Math.abs(this.scene.player.body.velocity.y) < 5 && this.scene.player.y > this.scene.groundLevel - 25 && !this.scene.isPulling) {
+                        collisionCount = 0;
+                    } else if (Math.abs(currentVelocityY) < 5 && this.scene.player.y > this.scene.groundLevel - 25 && !this.scene.isPulling) {
                         // If player is stuck with very small velocity near platform, stabilize them
                         this.scene.player.body.setVelocityX(0);
                         this.scene.player.body.setVelocityY(0);
                         const platformY = this.scene.groundLevel - 12;
                         this.scene.player.y = platformY - GAME_CONSTANTS.PLAYER.SIZE / 2;
                         this.scene.player.x = this.scene.initialPlayerPosition.x;
-                        console.log('Stabilized player stuck with small velocity');
+                        collisionCount = 0;
                     }
                 }, null, this.scene);
             }
@@ -272,7 +361,7 @@ export class UISystem {
             // Allow interaction but prevent physics movement
             this.scene.player.body.setImmovable(false); // Allow interaction
             this.scene.player.body.setBounce(0, 0);
-            this.scene.player.body.setFriction(1);
+            this.scene.player.body.setFriction(0.95); // High friction when on ground
             
             // Continuous position stabilization for the first few frames
             let stabilizationCount = 0;
@@ -424,7 +513,22 @@ export class UISystem {
         // Create UI containers (initially hidden)
         this.ui.endOfDayContainer = this.createEndOfDayUI();
         this.createUpgradeUI();
+
+        // Create altitude display - positioned in world space to follow camera
+        this.altitudeText = this.scene.add.text(this.scene.cameras.main.width / 2, 50, 'Altitude: 0 ft', {
+            fontSize: GAME_CONSTANTS.UI_SCALE.ALTITUDE_FONT,
+            fill: UI_THEME.text,
+            fontFamily: 'Arial, sans-serif',
+            stroke: UI_THEME.primary,
+            strokeThickness: 2
+        }).setOrigin(0.5, 0).setVisible(false).setScrollFactor(0); // Fixed to camera
+        this.altitudeText.setDepth(2501); // High depth for UI text
+
+        // Create fuel gauge
         this.createFuelGauge();
+
+        // Create joystick for mobile controls
+        this.createJoystick();
 
         // Setup slingshot inputs
         this.scene.launchLine = this.scene.add.graphics();
@@ -444,7 +548,7 @@ export class UISystem {
             if (!this.scene.isAirborne && !this.scene.isLanded && !this.scene.isPulling) {
                 console.log('Starting pull!');
                 this.scene.isPulling = true;
-                
+
                 // Completely disable physics during pulling to prevent any interference
                 this.scene.player.body.setEnable(false); // Disable the entire physics body
                 
@@ -499,7 +603,7 @@ export class UISystem {
                 this.scene.isPulling = false;
                 this.scene.launchLine.clear();
                 this.scene.launchZoneIndicator.clear();
-
+                
                 // Calculate pull vector before returning player to original position
                 const pullVector = this.scene.originalPlayerPosition.clone().subtract(this.scene.startPoint);
                 
@@ -513,6 +617,14 @@ export class UISystem {
 
                 // Check if pull distance is too small or if we just restarted
                 const minPullDistance = 10; // Minimum pixels to move
+                console.log('Launch attempt:', {
+                    pullDistance: pullDistance,
+                    justRestarted: this.scene.justRestarted,
+                    dayCount: this.scene.dayCount,
+                    isAirborne: this.scene.isAirborne,
+                    hasBeenLaunched: this.scene.hasBeenLaunched
+                });
+                
                 if (pullDistance < minPullDistance || this.scene.justRestarted) {
                     if (this.scene.justRestarted) {
                         console.log('Launch prevented - just restarted the day');
@@ -526,6 +638,7 @@ export class UISystem {
                             stroke: '#000',
                             strokeThickness: 2
                         }).setOrigin(0.5);
+                        feedbackText.setDepth(2501); // High depth for UI text
                         
                         // Animate the feedback text
                         this.scene.tweens.add({
@@ -564,6 +677,14 @@ export class UISystem {
                     this.ui.launchCountText.setText(this.scene.launchCount);
                     this.ui.flightDistanceText.setText('...');
                     this.ui.airTimeText.setText('...');
+                    
+                    // Add friction to help control velocity when airborne
+                    this.scene.player.body.setFriction(0.9);
+                    
+                    // Show joystick if rocket is available
+                    if (this.scene.upgradeSystem.hasRocket()) {
+                        this.showJoystick();
+                    }
                     
                     console.log('=== LAUNCH SUCCESSFUL ===');
                     console.log('Launch state set:', {
@@ -612,6 +733,130 @@ export class UISystem {
             console.log('F3 key pressed!');
             this.toggleDebugMenu();
         });
+    }
+
+    createJoystick() {
+        // Only create joystick on mobile devices or touch-enabled devices
+        if (!this.scene.sys.game.device.touch) {
+            return;
+        }
+
+        const joystickX = 120;
+        const joystickY = this.scene.cameras.main.height - 120;
+
+        // Create joystick base (outer circle)
+        this.joystickBase = this.scene.add.circle(joystickX, joystickY, this.joystickBaseRadius, 0x34495e, 0.3);
+        this.joystickBase.setStrokeStyle(2, 0x4A90E2, 0.6);
+        this.joystickBase.setDepth(1000);
+
+        // Create joystick thumb (inner circle)
+        this.joystickThumb = this.scene.add.circle(joystickX, joystickY, this.joystickRadius, 0x4A90E2, 0.8);
+        this.joystickThumb.setStrokeStyle(2, 0xFFFFFF, 0.9);
+        this.joystickThumb.setDepth(1001);
+
+        // Make joystick interactive
+        this.joystickThumb.setInteractive();
+        this.joystickBase.setInteractive();
+
+        // Store initial position
+        this.joystickInitialX = joystickX;
+        this.joystickInitialY = joystickY;
+
+        // Add touch events with proper event handling
+        this.scene.input.on('pointerdown', this.onJoystickPointerDown, this);
+        this.scene.input.on('pointermove', this.onJoystickPointerMove, this);
+        this.scene.input.on('pointerup', this.onJoystickPointerUp, this);
+
+        // Initially hide joystick until rocket is available
+        this.joystickBase.setVisible(false);
+        this.joystickThumb.setVisible(false);
+    }
+
+    onJoystickPointerDown(pointer) {
+        // Only activate if rocket is available and player is airborne
+        if (!this.scene.upgradeSystem.hasRocket() || !this.scene.isAirborne) {
+            return;
+        }
+
+        // Check if pointer is near joystick area
+        const distance = Phaser.Math.Distance.Between(
+            pointer.x, pointer.y,
+            this.joystickInitialX, this.joystickInitialY
+        );
+
+        if (distance <= this.joystickBaseRadius + 20) {
+            this.joystickActive = true;
+            this.updateJoystickPosition(pointer.x, pointer.y);
+            // Stop event propagation to prevent slingshot activation
+            pointer.event.stopPropagation();
+        }
+    }
+
+    onJoystickPointerMove(pointer) {
+        if (!this.joystickActive) {
+            return;
+        }
+
+        this.updateJoystickPosition(pointer.x, pointer.y);
+        // Stop event propagation to prevent slingshot interference
+        pointer.event.stopPropagation();
+    }
+
+    onJoystickPointerUp(pointer) {
+        if (!this.joystickActive) {
+            return;
+        }
+
+        this.joystickActive = false;
+        this.joystickDirection = { x: 0, y: 0 };
+        
+        // Reset joystick thumb to center
+        this.joystickThumb.setPosition(this.joystickInitialX, this.joystickInitialY);
+        // Stop event propagation to prevent slingshot activation
+        pointer.event.stopPropagation();
+    }
+
+    updateJoystickPosition(pointerX, pointerY) {
+        // Calculate distance from center
+        const deltaX = pointerX - this.joystickInitialX;
+        const deltaY = pointerY - this.joystickInitialY;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        // Limit movement to joystick radius
+        if (distance > this.joystickRadius) {
+            const angle = Math.atan2(deltaY, deltaX);
+            const limitedX = this.joystickInitialX + Math.cos(angle) * this.joystickRadius;
+            const limitedY = this.joystickInitialY + Math.sin(angle) * this.joystickRadius;
+            this.joystickThumb.setPosition(limitedX, limitedY);
+            
+            // Normalize direction vector
+            this.joystickDirection.x = Math.cos(angle);
+            this.joystickDirection.y = Math.sin(angle);
+        } else {
+            this.joystickThumb.setPosition(pointerX, pointerY);
+            
+            // Normalize direction vector
+            this.joystickDirection.x = deltaX / this.joystickRadius;
+            this.joystickDirection.y = deltaY / this.joystickRadius;
+        }
+    }
+
+    showJoystick() {
+        if (this.joystickBase && this.joystickThumb) {
+            this.joystickBase.setVisible(true);
+            this.joystickThumb.setVisible(true);
+        }
+    }
+
+    hideJoystick() {
+        if (this.joystickBase && this.joystickThumb) {
+            this.joystickBase.setVisible(false);
+            this.joystickThumb.setVisible(false);
+        }
+    }
+
+    getJoystickDirection() {
+        return this.joystickDirection;
     }
 
     createLauncherVisualization() {
@@ -705,7 +950,7 @@ export class UISystem {
         
         // Set the title container to not scroll with camera initially
         this.titleContainer.setScrollFactor(0, 0);
-        this.titleContainer.setDepth(100);
+        this.titleContainer.setDepth(2500); // High depth for UI elements
     }
 
     updateLauncherPosition() {
@@ -728,33 +973,8 @@ export class UISystem {
     }
 
     createCameraOverlay() {
-        // Create altitude text as a UI element that stays fixed on screen
-        this.altitudeText = this.scene.add.text(
-            this.scene.cameras.main.width - 45,
-            45,
-            'Altitude: 0',
-            {
-                fontSize: GAME_CONSTANTS.UI_SCALE.ALTITUDE_FONT,
-                fill: UI_THEME.primary,
-                fontFamily: 'Arial, sans-serif',
-                align: 'right',
-                backgroundColor: 'rgba(44,62,80,0.7)',
-                padding: { left: 18, right: 18, top: 6, bottom: 6 },
-            }
-        ).setOrigin(1, 0);
-        
-        // Debug: Log the creation
-        console.log('Altitude text created at:', this.scene.cameras.main.width - 45, 45);
-        
-        // Set high depth to ensure it's above everything
-        this.altitudeText.setDepth(1000);
-        this.altitudeText.setVisible(true); // Temporarily visible for testing
-        
-        // Make sure it doesn't scroll with the camera
-        this.altitudeText.setScrollFactor(0, 0);
-        
-        // In Phaser 3, we use setScrollFactor(0, 0) to fix to camera
-        // The text is already set to not scroll with the camera
+        // Camera overlay functionality can be added here if needed
+        // Removed old altitude text that was positioned in top right
     }
 
     createFuelGauge() {
@@ -824,6 +1044,7 @@ export class UISystem {
         dayFailedText.setName('dayFailedText');
         coinsEarnedText.setName('coinsEarnedText');
         container.setVisible(false);
+        container.setDepth(3000); // High depth to ensure it's above all game objects
         return container;
     }
 
@@ -894,6 +1115,7 @@ export class UISystem {
 
         this.upgradeContainer = this.scene.add.container(this.scene.cameras.main.width / 2, this.scene.cameras.main.height / 2, elements);
         this.upgradeContainer.setVisible(false);
+        this.upgradeContainer.setDepth(3000); // High depth to ensure it's above all game objects
     }
 
     updateUpgradeUI() {
@@ -1012,26 +1234,159 @@ export class UISystem {
     }
 
     showZoneTransition(zoneName) {
-        const transitionText = this.scene.add.text(
-            this.scene.cameras.main.width / 2, 
-            this.scene.cameras.main.height / 2, 
-            zoneName, 
-            { 
-                fontSize: '48px', 
-                fill: UI_THEME.primary,
-                fontFamily: 'Arial, sans-serif',
-                fontWeight: 'bold'
-            }
-        ).setOrigin(0.5).setAlpha(0);
+        // Create zone transition UI
+        const transitionContainer = this.scene.add.container(this.scene.cameras.main.width / 2, 100);
+        transitionContainer.setDepth(2500);
         
+        const bg = this.scene.add.graphics();
+        bg.fillStyle(0x000000, 0.8);
+        bg.fillRoundedRect(-150, -30, 300, 60, 15);
+        
+        const text = this.scene.add.text(0, 0, `Entering ${zoneName}`, {
+            fontSize: '24px',
+            fill: '#4A90E2',
+            stroke: '#000',
+            strokeThickness: 2
+        }).setOrigin(0.5);
+        
+        transitionContainer.add([bg, text]);
+        
+        // Animate the transition
+        transitionContainer.setAlpha(0);
         this.scene.tweens.add({
-            targets: transitionText,
+            targets: transitionContainer,
             alpha: 1,
-            duration: 500,
+            duration: 300,
             ease: 'Power2',
             yoyo: true,
-            onComplete: () => transitionText.destroy()
+            hold: 1500,
+            onComplete: () => transitionContainer.destroy()
         });
+    }
+
+    showLaunchReadyIndicator() {
+        // Create a prominent "Ready to Launch" indicator
+        const indicator = this.scene.add.container(this.scene.cameras.main.width / 2, this.scene.cameras.main.height / 2 - 100);
+        indicator.setDepth(2500);
+        
+        // Background
+        const bg = this.scene.add.graphics();
+        bg.fillStyle(0x000000, 0.9);
+        bg.lineStyle(3, 0x4A90E2, 1);
+        bg.fillRoundedRect(-200, -80, 400, 160, 20);
+        bg.strokeRoundedRect(-200, -80, 400, 160, 20);
+        
+        // Main text
+        const readyText = this.scene.add.text(0, -30, 'READY TO LAUNCH', {
+            fontSize: '32px',
+            fill: '#4A90E2',
+            stroke: '#000',
+            strokeThickness: 3,
+            fontWeight: 'bold'
+        }).setOrigin(0.5);
+        
+        // Instruction text
+        const instructionText = this.scene.add.text(0, 20, 'Pull and release to launch!', {
+            fontSize: '18px',
+            fill: '#FFFFFF',
+            stroke: '#000',
+            strokeThickness: 2
+        }).setOrigin(0.5);
+        
+        // Launch icon/arrow
+        const arrow = this.scene.add.graphics();
+        arrow.lineStyle(4, 0x7ED321, 1);
+        arrow.fillStyle(0x7ED321, 1);
+        // Draw upward arrow
+        arrow.lineBetween(0, 40, 0, 60);
+        arrow.fillTriangle(-8, 40, 8, 40, 0, 25);
+        
+        indicator.add([bg, readyText, instructionText, arrow]);
+        
+        // Create launch area highlight
+        const launchHighlight = this.scene.add.graphics();
+        launchHighlight.setDepth(2499); // Just below the indicator
+        launchHighlight.lineStyle(4, 0x4A90E2, 0.8);
+        launchHighlight.strokeCircle(this.scene.player.x, this.scene.player.y, 150);
+        launchHighlight.lineStyle(2, 0x7ED321, 0.6);
+        launchHighlight.strokeCircle(this.scene.player.x, this.scene.player.y, 120);
+        
+        // Animate the indicator
+        indicator.setAlpha(0);
+        indicator.setScale(0.8);
+        launchHighlight.setAlpha(0);
+        
+        this.scene.tweens.add({
+            targets: indicator,
+            alpha: 1,
+            scaleX: 1,
+            scaleY: 1,
+            duration: 500,
+            ease: 'Back.easeOut'
+        });
+        
+        this.scene.tweens.add({
+            targets: launchHighlight,
+            alpha: 1,
+            duration: 500,
+            ease: 'Power2'
+        });
+        
+        // Pulsing animation for attention
+        this.scene.tweens.add({
+            targets: readyText,
+            scaleX: 1.1,
+            scaleY: 1.1,
+            duration: 800,
+            ease: 'Sine.easeInOut',
+            yoyo: true,
+            repeat: -1
+        });
+        
+        // Pulsing animation for launch area highlight
+        this.scene.tweens.add({
+            targets: launchHighlight,
+            scaleX: 1.1,
+            scaleY: 1.1,
+            alpha: 0.4,
+            duration: 1200,
+            ease: 'Sine.easeInOut',
+            yoyo: true,
+            repeat: -1
+        });
+        
+        // Auto-hide after a few seconds
+        this.scene.time.delayedCall(4000, () => {
+            this.scene.tweens.add({
+                targets: [indicator, launchHighlight],
+                alpha: 0,
+                scaleX: 0.8,
+                scaleY: 0.8,
+                duration: 300,
+                ease: 'Power2',
+                onComplete: () => {
+                    indicator.destroy();
+                    launchHighlight.destroy();
+                }
+            });
+        });
+        
+        // Hide when player starts pulling
+        const hideOnPull = () => {
+            if (this.scene.isPulling) {
+                this.scene.tweens.add({
+                    targets: [indicator, launchHighlight],
+                    alpha: 0,
+                    duration: 200,
+                    onComplete: () => {
+                        indicator.destroy();
+                        launchHighlight.destroy();
+                    }
+                });
+                this.scene.input.off('pointerdown', hideOnPull);
+            }
+        };
+        this.scene.input.on('pointerdown', hideOnPull);
     }
 
     checkCloudBreach() {

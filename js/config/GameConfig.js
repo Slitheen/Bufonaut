@@ -20,13 +20,13 @@ export const GAME_CONSTANTS = {
         MAX_VELOCITY: 3000, // Increased to allow higher speeds with upgrades
     },
     OBSTACLES: {
-        BALLOON_COUNT: 15,
-        BIRD_COUNT: 12,
+        BALLOON_COUNT: 30,
+        BIRD_COUNT: 24,
         CLOUD_COUNT: 8,
         COIN_COUNT: 20,
         GAS_TANK_COUNT: 8,
-        BALLOON_BOOST: -900,
-        BIRD_BOOST: -700,
+        BALLOON_BOOST: -240, // Changed from -120 to -240 for stronger boost
+        BIRD_BOOST: -240, // Changed from -80 to -240 for stronger boost
         CLOUD_SLOWDOWN: 0.7,
     },
     REWARDS: {
@@ -42,10 +42,10 @@ export const GAME_CONSTANTS = {
         COST_MULTIPLIER: 1.8
     },
     ALTITUDE_ZONES: {
-        GROUND: { min: 0, max: -2000, name: 'Ground Level' },
-        LOW_ALTITUDE: { min: -2000, max: -6000, name: 'Low Altitude' },
-        HIGH_ALTITUDE: { min: -6000, max: -15000, name: 'High Altitude' },
-        SPACE: { min: -15000, max: -50000, name: 'Space' }
+        GROUND: { min: -2000, max: 0, name: 'Ground Level' },
+        LOW_ALTITUDE: { min: -6000, max: -2000, name: 'Low Altitude' },
+        HIGH_ALTITUDE: { min: -15000, max: -6000, name: 'High Altitude' },
+        SPACE: { min: -50000, max: -15000, name: 'Space' }
     },
     UI_SCALE: {
         SCALE_FACTOR: 1.5,
@@ -56,7 +56,7 @@ export const GAME_CONSTANTS = {
         ALTITUDE_FONT: '42px',
         FUEL_FONT: '12px',
         UPGRADE_ICON_SIZE: 96,
-        BALLOON_SIZE: 105,
+        BALLOON_SIZE: 80,
         CLOUD_SIZE: 150,
         CLOUD_HEIGHT: 90,
         TITLE_IMAGE_WIDTH: 600,
@@ -64,10 +64,12 @@ export const GAME_CONSTANTS = {
     },
     PERFORMANCE: {
         UPDATE_FREQUENCY: 1,
-        ZONE_CHECK_FREQUENCY: 144, // Increased for 144 FPS
+        ZONE_CHECK_FREQUENCY: 10, // Check every 10 frames (reduced for better performance)
         ROTATION_FREQUENCY: 8, // Increased for smoother rotation at 144 FPS
         CAMERA_SMOOTHING: 0.12, // Slightly increased for smoother camera at 144 FPS
-        MAX_ACTIVE_OBJECTS: 50 // Increased to accommodate higher spawn rates
+        MAX_ACTIVE_OBJECTS: 300, // Increased from 200 to 300 to accommodate more objects across zones
+        ZONE_BUFFER_DISTANCE: 2000, // Increased distance from zone boundary to start pre-spawning
+        OBJECT_POOL_SIZE: 50 // Increased from 30 to 50 for more object variety
     }
 };
 
@@ -105,7 +107,8 @@ export const PHASER_CONFIG = {
             positionIterations: 1, // Reduced from 2
             maxObjects: 1000, // Limit physics objects
             overlapBias: 4,
-            tileBias: 4
+            tileBias: 4,
+            friction: 0.8 // Increased friction to help control velocity
         }
     },
     callbacks: {

@@ -5,8 +5,23 @@ export class CollisionSystem {
         this.scene = scene;
         this.lastLogMessages = new Map(); // Track last log messages to prevent spam
         this.logCooldown = 2000; // 2 seconds cooldown for repeated messages
+        
+        // Collision cooldown tracking to prevent multiple hits on same object
+        this.collisionCooldowns = new Map();
+        this.collisionCooldownTime = 500; // 500ms cooldown between hits on same object
+        
+        // Velocity tracking to prevent extreme boosts
+        this.lastVelocityY = 0;
+        this.lastVelocityX = 0;
+        this.velocityChangeThreshold = 1000; // Maximum velocity change per collision
     }
     
+    // Clear all collision cooldowns (called when restarting day)
+    clearCooldowns() {
+        this.collisionCooldowns.clear();
+        console.log('Collision cooldowns cleared');
+    }
+
     // Debug logging utility that prevents spam
     debugLog(message, key = null) {
         const now = Date.now();
@@ -23,29 +38,68 @@ export class CollisionSystem {
         this.lastLogMessages.set(messageKey, now);
     }
 
+    // Check if collision is on cooldown
+    isOnCooldown(objectId) {
+        const now = Date.now();
+        if (this.collisionCooldowns.has(objectId)) {
+            const lastCollision = this.collisionCooldowns.get(objectId);
+            if (now - lastCollision < this.collisionCooldownTime) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Set collision cooldown
+    setCooldown(objectId) {
+        this.collisionCooldowns.set(objectId, Date.now());
+    }
+
+    // Safe velocity change that prevents extreme boosts
+    safeVelocityChange(player, deltaX, deltaY) {
+        const currentVelX = player.body.velocity.x;
+        const currentVelY = player.body.velocity.y;
+        
+        // Limit velocity change per collision
+        const maxDeltaX = Math.sign(deltaX) * Math.min(Math.abs(deltaX), this.velocityChangeThreshold);
+        const maxDeltaY = Math.sign(deltaY) * Math.min(Math.abs(deltaY), this.velocityChangeThreshold);
+        
+        // Apply safe velocity change
+        player.body.velocity.x += maxDeltaX;
+        player.body.velocity.y += maxDeltaY;
+        
+        // Cap velocity to prevent extreme speeds
+        this.capPlayerVelocity(player);
+        
+        // Log extreme velocity changes for debugging
+        if (Math.abs(maxDeltaX) > 500 || Math.abs(maxDeltaY) > 500) {
+            console.warn('Large velocity change detected:', {
+                deltaX: maxDeltaX.toFixed(1),
+                deltaY: maxDeltaY.toFixed(1),
+                finalVelX: player.body.velocity.x.toFixed(1),
+                finalVelY: player.body.velocity.y.toFixed(1)
+            });
+        }
+    }
+
     hitBalloon(player, balloon) {
-        // Store original velocity to ensure we always increase speed
+        // Check collision cooldown
+        if (this.isOnCooldown(balloon.name)) {
+            return;
+        }
+        
+        // Set cooldown for this balloon
+        this.setCooldown(balloon.name);
+        
+        // Store original velocity for comparison
         const originalVelocityY = player.body.velocity.y;
         const originalVelocityX = player.body.velocity.x;
         
-        // Always add the boost - balloons should always help, never hurt
-        player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST;
-        
-        // Also add a small horizontal boost in the direction the player is moving
-        if (player.body.velocity.x !== 0) {
-            player.body.velocity.x += Math.sign(player.body.velocity.x) * 50;
-        }
-
-        // Cap velocity but ensure we never go slower than before the boost
-        this.capPlayerVelocity(player);
-        
-        // Safety check: if velocity capping made us slower, restore the boost
-        if (Math.abs(player.body.velocity.y) < Math.abs(originalVelocityY)) {
-            player.body.velocity.y = originalVelocityY + GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST;
-        }
-        if (Math.abs(player.body.velocity.x) < Math.abs(originalVelocityX)) {
-            player.body.velocity.x = originalVelocityX + (Math.sign(originalVelocityX) * 50);
-        }
+        // Apply safe velocity boost
+        this.safeVelocityChange(player, 
+            Math.sign(player.body.velocity.x) * 15, // Small horizontal boost
+            GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST // Vertical boost
+        );
 
         // Remove from age tracking before destroying
         if (balloon.name) {
@@ -58,29 +112,28 @@ export class CollisionSystem {
         
         // Add a visual effect to show the boost
         this.addBoostEffect(player.x, player.y);
+        
+        this.debugLog(`Balloon hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'balloon_hit');
     }
 
     hitBird(player, bird) {
-        // Store original velocity to ensure we always increase speed
+        // Check collision cooldown
+        if (this.isOnCooldown(bird.name)) {
+            return;
+        }
+        
+        // Set cooldown for this bird
+        this.setCooldown(bird.name);
+        
+        // Store original velocity for comparison
         const originalVelocityY = player.body.velocity.y;
         const originalVelocityX = player.body.velocity.x;
         
-        // Always add the boost - birds should always help, never hurt
-        player.body.velocity.y += GAME_CONSTANTS.OBSTACLES.BIRD_BOOST;
-
-        // Add horizontal momentum in the direction the bird was flying
-        player.body.velocity.x += bird.body.velocity.x * 0.5; // Scale down bird's velocity
-
-        // Cap velocity but ensure we never go slower than before the boost
-        this.capPlayerVelocity(player);
-        
-        // Safety check: if velocity capping made us slower, restore the boost
-        if (Math.abs(player.body.velocity.y) < Math.abs(originalVelocityY)) {
-            player.body.velocity.y = originalVelocityY + GAME_CONSTANTS.OBSTACLES.BIRD_BOOST;
-        }
-        if (Math.abs(player.body.velocity.x) < Math.abs(originalVelocityX)) {
-            player.body.velocity.x = originalVelocityX + (bird.body.velocity.x * 0.5);
-        }
+        // Apply safe velocity boost
+        this.safeVelocityChange(player,
+            bird.body.velocity.x * 0.2, // Horizontal momentum from bird
+            GAME_CONSTANTS.OBSTACLES.BIRD_BOOST // Vertical boost
+        );
 
         // Remove from age tracking before destroying
         if (bird.name) {
@@ -93,6 +146,8 @@ export class CollisionSystem {
         
         // Add a visual effect to show the boost
         this.addBoostEffect(player.x, player.y);
+        
+        this.debugLog(`Bird hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'bird_hit');
     }
 
     hitCloud(player, cloud) {

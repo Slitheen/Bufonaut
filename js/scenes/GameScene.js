@@ -25,6 +25,8 @@ export class GameScene extends Phaser.Scene {
         this.maxFuel = 0;
         this.keys = null;
         this.groundLevel = 0;
+        this.justRestarted = false; // Initialize the flag properly
+        this.hasBeenLaunched = false; // Initialize launch tracking
 
         // Systems
         this.upgradeSystem = null;
@@ -41,8 +43,8 @@ export class GameScene extends Phaser.Scene {
         this.load.image('balloon_2', 'assets/balloon_2.png');
         this.load.image('birds', 'assets/birds.png');
         this.load.image('birds_2', 'assets/birds_2.png');
-        this.load.image('hot_air_balloon', 'assets/balloon.png');
-        this.load.image('plane', 'assets/birds.png');
+        this.load.image('hot_air_balloon', 'assets/hot_air_balloon.png');
+        this.load.image('plane', 'assets/plane.png');
         this.load.image('satellite', 'assets/satellite.png');
         this.load.image('martian', 'assets/martian.png');
         this.load.image('coin', 'assets/coin.png');
@@ -58,6 +60,14 @@ export class GameScene extends Phaser.Scene {
         this.load.image('upgrade_frame', 'assets/upgrade_frame.png');
         this.load.image('upgrade_ship', 'assets/upgrade_ship.png');
         this.load.image('upgrade_rocket', 'assets/upgrade_rocket.png');
+        
+        // Load seamless world background with cache-busting
+        const backgroundVersion = Date.now(); // Use timestamp for cache-busting
+        // Alternative: Use manual version - increment this when you update the background
+        // const backgroundVersion = '1.1'; // Change this number when you update background.png
+        this.load.image('world_background', `World/background.png?v=${backgroundVersion}`);
+        
+        console.log(`Loading background with cache-busting: World/background.png?v=${backgroundVersion}`);
     }
 
     create() {
@@ -71,27 +81,75 @@ export class GameScene extends Phaser.Scene {
         this.physics.world.setBounds(0, GAME_CONSTANTS.WORLD_TOP, this.cameras.main.width, this.cameras.main.height - GAME_CONSTANTS.WORLD_TOP);
         this.groundLevel = this.cameras.main.height - GAME_CONSTANTS.GROUND_HEIGHT;
 
-        // Create world
-        this.createSkyLayers();
+        // Create seamless world background
+        this.createSeamlessBackground();
         this.createGrassTexture();
         this.uiSystem.createModernUI();
         this.uiSystem.createCameraOverlay();
         this.uiSystem.createGameplayArea();
         this.uiSystem.createFloatingUI();
         
-        // Spawn objects after player is created (with a small delay to ensure player exists)
-        this.time.delayedCall(100, () => {
-            this.objectSpawner.spawnObjectsForCurrentZone();
-            this.objectSpawner.spawnClouds();
-            this.objectSpawner.spawnCoinsAndGasTanks();
-            
-            // Setup collision detection with spawned objects
-            this.setupCollisionDetection();
+        // Validate all required textures are loaded before spawning
+        this.validateAssets(() => {
+            // Spawn objects after assets are validated and player is created
+            this.time.delayedCall(200, () => {
+                if (this.objectSpawner && typeof this.objectSpawner.spawnObjectsForMultipleZones === 'function') {
+                    this.objectSpawner.spawnObjectsForMultipleZones();
+                    this.objectSpawner.spawnClouds();
+                    this.objectSpawner.spawnCoinsAndGasTanks();
+                    
+                    // Setup collision detection with spawned objects
+                    this.setupCollisionDetection();
+                } else {
+                    console.error('ObjectSpawner or spawnObjectsForMultipleZones method not available');
+                }
+            });
         });
         
         // Initialize UI text with current values
         this.uiSystem.ui.coinsText.setText(this.upgradeSystem.getCoins());
         this.uiSystem.ui.dayCountText.setText(this.dayCount.toString());
+        
+        // Ensure justRestarted flag is properly initialized for first session
+        if (this.dayCount === 1) {
+            console.log('First session - ensuring justRestarted flag is properly initialized');
+            this.justRestarted = false;
+        }
+    }
+
+    validateAssets(callback) {
+        console.log('Validating game assets...');
+        
+        const requiredTextures = [
+            'bufo', 'bufo_rocket', 'balloon', 'balloon_2', 'birds', 'birds_2',
+            'hot_air_balloon', 'plane', 'satellite', 'martian', 'coin', 'gas_tank',
+            'cloud', 'cloud_2', 'cloud_3', 'cloud_4', 'cloud_5', 'cloud_6', 'cloud_7',
+            'upgrade_string', 'upgrade_frame', 'upgrade_ship', 'upgrade_rocket',
+            'world_background'
+        ];
+        
+        const missingTextures = [];
+        
+        requiredTextures.forEach(texture => {
+            if (!this.textures.exists(texture)) {
+                missingTextures.push(texture);
+            }
+        });
+        
+        if (missingTextures.length > 0) {
+            console.error('Missing textures:', missingTextures);
+            // Try to wait a bit longer for textures to load
+            this.time.delayedCall(500, () => {
+                const stillMissing = missingTextures.filter(texture => !this.textures.exists(texture));
+                if (stillMissing.length > 0) {
+                    console.error('Still missing textures after delay:', stillMissing);
+                }
+                callback();
+            });
+        } else {
+            console.log('All textures validated successfully');
+            callback();
+        }
     }
 
     setupCollisionDetection() {
@@ -111,6 +169,8 @@ export class GameScene extends Phaser.Scene {
         if (this.objectSpawner.gasTanks) {
             this.physics.add.overlap(this.player, this.objectSpawner.gasTanks, (player, gasTank) => this.collisionSystem.hitGasTank(player, gasTank), null, this);
         }
+        
+        console.log('Collision detection setup complete');
     }
 
     update() {
@@ -157,10 +217,26 @@ export class GameScene extends Phaser.Scene {
             // Check for cloud breach before camera tracking
             this.uiSystem.checkCloudBreach();
             
+            // Update seamless background based on player altitude
+            this.updateSeamlessBackground();
+            
             // Update altitude text every frame for smooth display
             const altitude = Math.round(this.groundLevel - this.player.y);
             this.uiSystem.altitudeText.setText(`Altitude: ${altitude} ft`);
             this.uiSystem.altitudeText.setVisible(true);
+            
+            // Ensure altitude text stays in correct screen position
+            this.uiSystem.altitudeText.setPosition(this.cameras.main.width / 2, 50);
+            
+            // Debug altitude calculation
+            if (this.time.now % 60 === 0) { // Log every 60 frames
+                console.log('Altitude Debug:', {
+                    groundLevel: this.groundLevel,
+                    playerY: this.player.y,
+                    altitude: altitude,
+                    cameraScrollY: this.cameras.main.scrollY
+                });
+            }
 
             this.handleRocketControls();
 
@@ -214,6 +290,23 @@ export class GameScene extends Phaser.Scene {
             
             // Update launcher visualization position
             this.uiSystem.updateLauncherPosition();
+            
+            // Apply continuous friction to help control velocity when airborne
+            if (this.isAirborne && this.player && this.player.body) {
+                // Apply air resistance to slow down excessive velocity
+                const currentVelX = this.player.body.velocity.x;
+                const currentVelY = this.player.body.velocity.y;
+                
+                // Apply air resistance (friction) to horizontal movement
+                if (Math.abs(currentVelX) > 100) {
+                    this.player.body.velocity.x *= 0.995; // Gradual slowdown
+                }
+                
+                // Apply air resistance to vertical movement (but less aggressive)
+                if (Math.abs(currentVelY) > 200) {
+                    this.player.body.velocity.y *= 0.998; // Very gradual slowdown
+                }
+            }
 
         } else {
             this.uiSystem.altitudeText.setVisible(false);
@@ -266,8 +359,11 @@ export class GameScene extends Phaser.Scene {
             const nudgeThrust = GAME_CONSTANTS.PLAYER.NUDGE_THRUST;
             let fuelConsumed = false;
 
-            // Handle upward movement (W key) - only available in Tier 3
-            if (this.keys.W.isDown && rocketCapabilities.canMoveUp) {
+            // Get joystick direction for mobile controls
+            const joystickDirection = this.uiSystem.getJoystickDirection();
+
+            // Handle upward movement (W key or joystick up) - only available in Tier 3
+            if ((this.keys.W.isDown || joystickDirection.y < -0.3) && rocketCapabilities.canMoveUp) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.y -= thrust;
                     fuelConsumed = true;
@@ -277,8 +373,8 @@ export class GameScene extends Phaser.Scene {
                 }
             }
 
-            // Handle downward movement (S key) - always available with rocket
-            if (this.keys.S.isDown) {
+            // Handle downward movement (S key or joystick down) - always available with rocket
+            if (this.keys.S.isDown || joystickDirection.y > 0.3) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.y += thrust;
                     fuelConsumed = true;
@@ -288,8 +384,8 @@ export class GameScene extends Phaser.Scene {
                 }
             }
 
-            // Handle left movement (A key) - available in all tiers
-            if (this.keys.A.isDown) {
+            // Handle left movement (A key or joystick left) - available in all tiers
+            if (this.keys.A.isDown || joystickDirection.x < -0.3) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.x -= thrust;
                     fuelConsumed = true;
@@ -299,8 +395,8 @@ export class GameScene extends Phaser.Scene {
                 }
             }
 
-            // Handle right movement (D key) - available in all tiers
-            if (this.keys.D.isDown) {
+            // Handle right movement (D key or joystick right) - available in all tiers
+            if (this.keys.D.isDown || joystickDirection.x > 0.3) {
                 if (this.fuel > 0) {
                     this.player.body.velocity.x += thrust;
                     fuelConsumed = true;
@@ -328,18 +424,29 @@ export class GameScene extends Phaser.Scene {
         console.log('Landing state before:', {
             isAirborne: this.isAirborne,
             isLanded: this.isLanded,
-            hasBeenLaunched: this.hasBeenLaunched
+            hasBeenLaunched: this.hasBeenLaunched,
+            cloudBreached: this.uiSystem.cloudBreached
         });
         
         this.isAirborne = false;
         this.isLanded = true;
 
+        // Stop camera tracking by resetting cloud breach state
+        this.uiSystem.cloudBreached = false;
+
         console.log('Landing state after:', {
             isAirborne: this.isAirborne,
-            isLanded: this.isLanded
+            isLanded: this.isLanded,
+            cloudBreached: this.uiSystem.cloudBreached
         });
 
-        this.cameras.main.pan(this.cameras.main.width / 2, this.cameras.main.height / 2, 250, 'Sine.easeInOut');
+        // Reset camera to launch position instead of center
+        const launchCameraY = this.groundLevel - 200; // Focus slightly above the launch platform
+        this.cameras.main.pan(this.cameras.main.width / 2, launchCameraY, 500, 'Sine.easeInOut');
+        
+        // Also directly set camera position to ensure it sticks
+        this.cameras.main.scrollY = launchCameraY - this.cameras.main.height / 2;
+        console.log(`Camera reset to launch position: scrollY=${this.cameras.main.scrollY}`);
 
         this.player.body.stop();
         this.player.setAngle(0); // Reset rotation when landing
@@ -347,6 +454,9 @@ export class GameScene extends Phaser.Scene {
         
         // Hide fuel gauge when landing
         this.uiSystem.hideFuelGauge();
+        
+        // Hide joystick when landing
+        this.uiSystem.hideJoystick();
 
         const airTime = (this.time.now - this.launchTime) / 1000;
         const distance = Math.max(0, this.startPoint.y - this.peakY);
@@ -375,8 +485,6 @@ export class GameScene extends Phaser.Scene {
         console.log('End of day UI should now be visible');
     }
 
-
-
     buyUpgrade(key) {
         const result = this.upgradeSystem.buyUpgrade(key);
         if (result) {
@@ -404,12 +512,17 @@ export class GameScene extends Phaser.Scene {
 
         this.objectSpawner.cleanupOldAssets();
         
+        // Clear collision cooldowns for fresh collision detection
+        this.collisionSystem.clearCooldowns();
+        
         // Reset input state to prevent glitch where game launches automatically
         this.input.keyboard.resetKeys();
         // Set a flag to prevent immediate launches after restart
         this.justRestarted = true;
         this.time.delayedCall(500, () => {
             this.justRestarted = false;
+            // Show launch readiness indicator after restart delay
+            this.uiSystem.showLaunchReadyIndicator();
         });
 
         this.isLanded = false;
@@ -422,11 +535,19 @@ export class GameScene extends Phaser.Scene {
         this.player.setTexture(this.upgradeSystem.hasRocket() ? 'bufo_rocket' : 'bufo');
         this.player.setPosition(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
 
+        // Reset camera to launch position
+        const launchCameraY = this.groundLevel - 200; // Focus slightly above the launch platform
+        this.cameras.main.scrollY = launchCameraY - this.cameras.main.height / 2;
+        console.log(`Camera reset to launch position: scrollY=${this.cameras.main.scrollY}`);
+
         // Reset cloud breach state
         this.uiSystem.cloudBreached = false;
         if (this.uiSystem.titleContainer) {
             this.uiSystem.titleContainer.setVisible(true);
         }
+        
+        // Hide joystick when restarting day
+        this.uiSystem.hideJoystick();
 
         if (this.upgradeSystem.hasRocket()) {
             const rocketCapabilities = this.upgradeSystem.getRocketCapabilities();
@@ -435,9 +556,16 @@ export class GameScene extends Phaser.Scene {
         }
 
         this.objectSpawner.currentAltitudeZone = null;
-        this.objectSpawner.spawnObjectsForCurrentZone();
-        this.objectSpawner.spawnClouds();
-        this.objectSpawner.spawnCoinsAndGasTanks();
+        if (this.objectSpawner && typeof this.objectSpawner.spawnObjectsForMultipleZones === 'function') {
+            this.objectSpawner.spawnObjectsForMultipleZones();
+            this.objectSpawner.spawnClouds();
+            this.objectSpawner.spawnCoinsAndGasTanks();
+            
+            // Re-setup collision detection after spawning new objects
+            this.setupCollisionDetection();
+        } else {
+            console.error('ObjectSpawner or spawnObjectsForMultipleZones method not available during restart');
+        }
 
         // Reset player physics completely
         this.player.body.stop();
@@ -471,8 +599,6 @@ export class GameScene extends Phaser.Scene {
         // Clear debug hitboxes on game reset
         this.uiSystem.clearAllDebugHitboxes();
         
-
-        
         // Reset position references for pulling
         this.originalPlayerPosition = new Phaser.Math.Vector2(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
         this.startPoint = new Phaser.Math.Vector2(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
@@ -484,7 +610,8 @@ export class GameScene extends Phaser.Scene {
             hasBeenLaunched: this.hasBeenLaunched,
             launchCount: this.launchCount,
             playerX: this.player.x,
-            playerY: this.player.y
+            playerY: this.player.y,
+            cameraScrollY: this.cameras.main.scrollY
         });
         
         // Update launcher visualization
@@ -615,6 +742,81 @@ export class GameScene extends Phaser.Scene {
 
         // Create twinkling stars in the black space area
         this.createTwinklingStars(worldTopY, groundY - 10000);
+    }
+
+    createSeamlessBackground() {
+        // Create the seamless background
+        this.worldBackground = this.add.image(0, 0, 'world_background');
+        this.worldBackground.setOrigin(0, 0);
+        this.worldBackground.setDepth(-1000); // Behind everything
+        
+        // Get the actual background image dimensions
+        const bgWidth = this.worldBackground.width;
+        const bgHeight = this.worldBackground.height;
+        const screenWidth = this.cameras.main.width;
+        const screenHeight = this.cameras.main.height;
+        
+        // Scale the background to fit the screen width while maintaining aspect ratio
+        const scaleX = screenWidth / bgWidth;
+        this.worldBackground.setScale(scaleX, scaleX);
+        
+        // Calculate the total world height we need to cover
+        const worldHeight = Math.abs(GAME_CONSTANTS.WORLD_TOP) + screenHeight;
+        
+        // If the background is shorter than the world height, we need to repeat it
+        const scaledBgHeight = bgHeight * scaleX;
+        const repeatCount = Math.ceil(worldHeight / scaledBgHeight);
+        
+        // Create additional background instances to cover the full world height
+        this.backgroundTiles = [this.worldBackground];
+        
+        for (let i = 1; i < repeatCount; i++) {
+            const tile = this.add.image(0, i * scaledBgHeight, 'world_background');
+            tile.setOrigin(0, 0);
+            tile.setScale(scaleX, scaleX);
+            tile.setDepth(-1000);
+            this.backgroundTiles.push(tile);
+        }
+        
+        // Position the background so the ground level is at the bottom of the screen initially
+        const initialY = this.groundLevel - screenHeight;
+        this.backgroundTiles.forEach(tile => {
+            tile.y += initialY;
+        });
+        
+        console.log('Seamless background created:', {
+            originalWidth: bgWidth,
+            originalHeight: bgHeight,
+            screenWidth: screenWidth,
+            screenHeight: screenHeight,
+            scaleX: scaleX,
+            scaledBgHeight: scaledBgHeight,
+            worldHeight: worldHeight,
+            repeatCount: repeatCount,
+            groundLevel: this.groundLevel,
+            initialY: initialY
+        });
+    }
+
+    updateSeamlessBackground() {
+        if (!this.backgroundTiles || !this.player) return;
+        
+        // Calculate the background position based on player altitude
+        const playerAltitude = this.groundLevel - this.player.y;
+        const maxAltitude = Math.abs(GAME_CONSTANTS.WORLD_TOP);
+        
+        // Calculate what portion of the background should be visible
+        const backgroundProgress = Math.max(0, Math.min(1, playerAltitude / maxAltitude));
+        const screenHeight = this.cameras.main.height;
+        const scaledBgHeight = this.worldBackground.height * this.worldBackground.scaleX;
+        
+        // Calculate the target Y position for the background tiles
+        const targetY = this.groundLevel - screenHeight - (scaledBgHeight * this.backgroundTiles.length - screenHeight) * backgroundProgress;
+        
+        // Smoothly move all background tiles
+        this.backgroundTiles.forEach(tile => {
+            tile.y = Phaser.Math.Linear(tile.y, targetY, 0.1);
+        });
     }
 
     createSmoothSkyGradient(worldWidth, groundY, worldTopY) {
