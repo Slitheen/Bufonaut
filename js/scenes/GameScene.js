@@ -749,7 +749,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     createSeamlessBackground() {
-        // Create the seamless background
+        // Create the seamless background with progressive loading (bottom to top)
         this.worldBackground = this.add.image(0, 0, 'world_background');
         this.worldBackground.setOrigin(0, 0);
         this.worldBackground.setDepth(-1000); // Behind everything
@@ -771,24 +771,51 @@ export class GameScene extends Phaser.Scene {
         const scaledBgHeight = bgHeight * scaleX;
         const repeatCount = Math.ceil(worldHeight / scaledBgHeight);
         
-        // Create additional background instances to cover the full world height
-        this.backgroundTiles = [this.worldBackground];
+        // Create background sections from bottom to top for progressive loading
+        this.backgroundTiles = [];
         
+        // Create bottom section first (ground/launch area)
+        const bottomTile = this.add.image(0, 0, 'world_background');
+        bottomTile.setOrigin(0, 0);
+        bottomTile.setScale(scaleX, scaleX);
+        bottomTile.setDepth(-1000);
+        this.backgroundTiles.push(bottomTile);
+        
+        // Progressive loading: Create upper sections with slight delays to prioritize bottom
         for (let i = 1; i < repeatCount; i++) {
-            const tile = this.add.image(0, i * scaledBgHeight, 'world_background');
-            tile.setOrigin(0, 0);
-            tile.setScale(scaleX, scaleX);
-            tile.setDepth(-1000);
-            this.backgroundTiles.push(tile);
+            this.time.delayedCall(i * 50, () => { // 50ms delay between each section
+                const tile = this.add.image(0, i * scaledBgHeight, 'world_background');
+                tile.setOrigin(0, 0);
+                tile.setScale(scaleX, scaleX);
+                tile.setDepth(-1000);
+                
+                // Apply initial positioning immediately
+                tile.y += this.initialBackgroundY;
+                
+                // Start with reduced alpha and fade in
+                tile.setAlpha(0);
+                this.tweens.add({
+                    targets: tile,
+                    alpha: 1,
+                    duration: 200,
+                    ease: 'Power2'
+                });
+                
+                this.backgroundTiles.push(tile);
+                console.log(`Background section ${i + 1}/${repeatCount} loaded and positioned`);
+            });
         }
         
         // Position the background so the ground level is at the bottom of the screen initially
         const initialY = this.groundLevel - screenHeight;
-        this.backgroundTiles.forEach(tile => {
-            tile.y += initialY;
-        });
         
-        console.log('Seamless background created:', {
+        // Apply initial position to bottom tile immediately
+        bottomTile.y += initialY;
+        
+        // Apply to other tiles as they're created
+        this.initialBackgroundY = initialY;
+        
+        console.log('Progressive background loading started (bottom to top):', {
             originalWidth: bgWidth,
             originalHeight: bgHeight,
             screenWidth: screenWidth,
@@ -815,12 +842,26 @@ export class GameScene extends Phaser.Scene {
         const scaledBgHeight = this.worldBackground.height * this.worldBackground.scaleX;
         
         // Calculate the target Y position for the background tiles
-        const targetY = this.groundLevel - screenHeight - (scaledBgHeight * this.backgroundTiles.length - screenHeight) * backgroundProgress;
+        const baseY = this.initialBackgroundY || (this.groundLevel - screenHeight);
+        const targetY = baseY - (scaledBgHeight * this.backgroundTiles.length - screenHeight) * backgroundProgress;
         
-        // Smoothly move all background tiles
-        this.backgroundTiles.forEach(tile => {
-            tile.y = Phaser.Math.Linear(tile.y, targetY, 0.1);
+        // Smoothly move all background tiles (including progressively loaded ones)
+        this.backgroundTiles.forEach((tile, index) => {
+            if (tile && tile.active) { // Check if tile exists and is active
+                const tileTargetY = targetY + (index * scaledBgHeight);
+                tile.y = Phaser.Math.Linear(tile.y, tileTargetY, 0.1);
+            }
         });
+        
+        // Debug progressive loading
+        if (this.time.now % 120 === 0) { // Log every 120 frames (2 seconds at 60fps)
+            console.log('Background sections loaded:', {
+                totalSections: this.backgroundTiles.length,
+                activeSections: this.backgroundTiles.filter(tile => tile && tile.active).length,
+                playerAltitude: Math.round(playerAltitude),
+                backgroundProgress: Math.round(backgroundProgress * 100) + '%'
+            });
+        }
     }
 
     createSmoothSkyGradient(worldWidth, groundY, worldTopY) {
