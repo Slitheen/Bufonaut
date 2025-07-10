@@ -180,6 +180,10 @@ export class GameScene extends Phaser.Scene {
             const pointer = this.input.activePointer;
             this.launchLine.clear();
             
+            // Convert pointer coordinates to world coordinates
+            const worldX = pointer.x + this.cameras.main.scrollX;
+            const worldY = pointer.y + this.cameras.main.scrollY;
+            
             // Draw elastic bands from launcher to player with better styling
             this.launchLine.lineStyle(4, 0x4A90E2, 0.6); // Blue color instead of white
             
@@ -196,9 +200,9 @@ export class GameScene extends Phaser.Scene {
             const launcherRightX = launcherX + 70; // Right side of launcher
             this.launchLine.lineBetween(launcherRightX, launcherTopY, this.player.x, this.player.y);
             
-            // Draw pull direction indicator
+            // Draw pull direction indicator using world coordinates
             this.launchLine.lineStyle(2, 0xFFFF00, 0.8); // Yellow direction indicator
-            this.launchLine.lineBetween(this.player.x, this.player.y, pointer.x, pointer.y);
+            this.launchLine.lineBetween(this.player.x, this.player.y, worldX, worldY);
             
             this.launchZoneIndicator.clear();
         }

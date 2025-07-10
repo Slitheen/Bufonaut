@@ -563,9 +563,17 @@ export class UISystem {
         // Handle mouse movement during pulling
         this.scene.input.on('pointermove', (pointer) => {
             if (this.scene.isPulling && this.scene.originalPlayerPosition) {
+                // Convert pointer coordinates from screen space to world space
+                const worldX = pointer.x + this.scene.cameras.main.scrollX;
+                const worldY = pointer.y + this.scene.cameras.main.scrollY;
+                
                 console.log('Pointer move - pulling:', {
-                    pointerX: pointer.x,
-                    pointerY: pointer.y,
+                    pointerScreenX: pointer.x,
+                    pointerScreenY: pointer.y,
+                    pointerWorldX: worldX,
+                    pointerWorldY: worldY,
+                    cameraScrollX: this.scene.cameras.main.scrollX,
+                    cameraScrollY: this.scene.cameras.main.scrollY,
                     playerX: this.scene.player.x,
                     playerY: this.scene.player.y,
                     velocityX: this.scene.player.body.velocity.x,
@@ -573,10 +581,10 @@ export class UISystem {
                     gravityY: this.scene.player.body.gravity.y
                 });
                 
-                // Calculate pull distance and direction
+                // Calculate pull distance and direction using world coordinates
                 const pullVector = new Phaser.Math.Vector2(
-                    pointer.x - this.scene.originalPlayerPosition.x,
-                    pointer.y - this.scene.originalPlayerPosition.y
+                    worldX - this.scene.originalPlayerPosition.x,
+                    worldY - this.scene.originalPlayerPosition.y
                 );
                 
                 // Allow much longer pull distance for extended range
