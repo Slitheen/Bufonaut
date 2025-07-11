@@ -323,11 +323,15 @@ export class ObjectSpawner {
     }
 
     returnActiveObjectsToPools() {
+        let balloonsReturned = 0;
+        let birdsReturned = 0;
+        
         // Return active balloons to pools
         if (this.balloons) {
             this.balloons.getChildren().forEach(obj => {
                 if (obj.active && obj.visible) {
                     this.returnToPool(obj, 'balloons');
+                    balloonsReturned++;
                 }
             });
         }
@@ -337,9 +341,12 @@ export class ObjectSpawner {
             this.birds.getChildren().forEach(obj => {
                 if (obj.active && obj.visible) {
                     this.returnToPool(obj, 'birds');
+                    birdsReturned++;
                 }
             });
         }
+        
+        console.log(`Returned ${balloonsReturned} balloons and ${birdsReturned} birds to pools`);
     }
 
     spawnClouds() {
@@ -718,11 +725,11 @@ export class ObjectSpawner {
         // Spawn ground/low altitude objects using object pooling
         for (let i = 0; i < balloonCount; i++) {
             console.log(`Creating balloon ${i + 1}/${balloonCount}`);
-            const balloon = this.getPooledObject('balloon', 'balloons');
+            // Randomly choose between balloon and balloon_2 for variety
+            const textureType = Math.random() > 0.5 ? 'balloon' : 'balloon_2';
+            const balloon = this.getPooledObject(textureType, 'balloons');
             if (balloon) {
                 console.log(`Balloon ${i + 1} created successfully`);
-                // Randomly choose between balloon and balloon_2 for variety
-                const textureType = Math.random() > 0.5 ? 'balloon' : 'balloon_2';
                 this._resetBalloon(balloon, textureType);
             } else {
                 console.log(`FAILED to create balloon ${i + 1}`);
@@ -730,11 +737,11 @@ export class ObjectSpawner {
         }
         for (let i = 0; i < birdCount; i++) {
             console.log(`Creating bird ${i + 1}/${birdCount}`);
-            const bird = this.getPooledObject('birds', 'birds');
+            // Randomly choose between birds and birds_2 for variety
+            const textureType = Math.random() > 0.5 ? 'birds' : 'birds_2';
+            const bird = this.getPooledObject(textureType, 'birds');
             if (bird) {
                 console.log(`Bird ${i + 1} created successfully`);
-                // Randomly choose between birds and birds_2 for variety
-                const textureType = Math.random() > 0.5 ? 'birds' : 'birds_2';
                 this._resetBird(bird, textureType);
             } else {
                 console.log(`FAILED to create bird ${i + 1}`);
@@ -881,12 +888,14 @@ export class ObjectSpawner {
         // Enable physics body for all objects - unified physics behavior
         balloon.body.enable = true;
 
-        // Set texture FIRST based on textureType (no override)
-        if (this.scene.textures.exists(textureType)) {
-            balloon.setTexture(textureType);
-        } else {
-            console.warn(`Balloon texture '${textureType}' does not exist, using fallback`);
-            balloon.setTexture('balloon');
+        // Texture should already be set correctly from pool, only set if different
+        if (balloon.texture.key !== textureType) {
+            if (this.scene.textures.exists(textureType)) {
+                balloon.setTexture(textureType);
+            } else {
+                console.warn(`Balloon texture '${textureType}' does not exist, using fallback`);
+                balloon.setTexture('balloon');
+            }
         }
 
         // Size variations based on asset type for better visual variety
@@ -991,12 +1000,14 @@ export class ObjectSpawner {
         }
         bird.body.enable = true;
 
-        // Set texture FIRST based on textureType (no override)
-        if (this.scene.textures.exists(textureType)) {
-            bird.setTexture(textureType);
-        } else {
-            console.warn(`Bird texture '${textureType}' does not exist, using fallback`);
-            bird.setTexture('birds');
+        // Texture should already be set correctly from pool, only set if different
+        if (bird.texture.key !== textureType) {
+            if (this.scene.textures.exists(textureType)) {
+                bird.setTexture(textureType);
+            } else {
+                console.warn(`Bird texture '${textureType}' does not exist, using fallback`);
+                bird.setTexture('birds');
+            }
         }
 
         // Size variations based on asset type for better visual variety
@@ -1006,7 +1017,7 @@ export class ObjectSpawner {
         } else if (textureType === 'plane') {
             assetSize = 85; // Planes are larger
         } else if (textureType === 'birds_2') {
-            assetSize = 65; // Birds_2 are smaller
+            assetSize = 72; // Birds_2 increased by 10% (was 65, now 72)
         } else {
             assetSize = 80; // Default bird size
         }

@@ -14,12 +14,52 @@ export class CollisionSystem {
         this.lastVelocityY = 0;
         this.lastVelocityX = 0;
         this.velocityChangeThreshold = 1000; // Maximum velocity change per collision
+        
+        // Landing detection optimization
+        this.lastLandingCheck = 0;
+        this.landingCheckCooldown = 50; // Minimum time between landing checks (ms)
+        
+        // Launch protection to prevent collisions immediately after launch
+        this.launchProtectionActive = false;
+        this.launchProtectionStartTime = 0;
+        this.launchProtectionDuration = 1500; // 1.5s protection after launch
+        this.launchStartY = 0; // Y position when launched
+        this.launchProtectionDistance = 300; // Distance player must travel from launch
     }
     
     // Clear all collision cooldowns (called when restarting day)
     clearCooldowns() {
         this.collisionCooldowns.clear();
+        this.launchProtectionActive = false;
         console.log('Collision cooldowns cleared');
+    }
+
+    // Start launch protection (called when player is launched)
+    startLaunchProtection(playerY) {
+        this.launchProtectionActive = true;
+        this.launchProtectionStartTime = Date.now();
+        this.launchStartY = playerY;
+        console.log('Launch protection started');
+    }
+
+    // Check if launch protection is active
+    isLaunchProtectionActive() {
+        if (!this.launchProtectionActive) {
+            return false;
+        }
+
+        const now = Date.now();
+        const timeSinceLaunch = now - this.launchProtectionStartTime;
+        const distanceFromLaunch = Math.abs(this.scene.player.y - this.launchStartY);
+
+        // End protection if enough time has passed OR player has moved far enough
+        if (timeSinceLaunch >= this.launchProtectionDuration || distanceFromLaunch >= this.launchProtectionDistance) {
+            this.launchProtectionActive = false;
+            console.log('Launch protection ended');
+            return false;
+        }
+
+        return true;
     }
 
     // Debug logging utility that prevents spam
@@ -56,33 +96,45 @@ export class CollisionSystem {
     }
 
     // Safe velocity change that prevents extreme boosts
-    safeVelocityChange(player, deltaX, deltaY) {
+    safeVelocityChange(player, newVelX, newVelY) {
         const currentVelX = player.body.velocity.x;
         const currentVelY = player.body.velocity.y;
         
-        // Limit velocity change per collision
-        const maxDeltaX = Math.sign(deltaX) * Math.min(Math.abs(deltaX), this.velocityChangeThreshold);
-        const maxDeltaY = Math.sign(deltaY) * Math.min(Math.abs(deltaY), this.velocityChangeThreshold);
+        // Limit velocity to prevent extreme speeds
+        const maxVel = GAME_CONSTANTS.PLAYER.MAX_VELOCITY;
+        const safeVelX = Math.sign(newVelX) * Math.min(Math.abs(newVelX), maxVel);
+        const safeVelY = Math.sign(newVelY) * Math.min(Math.abs(newVelY), maxVel);
         
-        // Apply safe velocity change
-        player.body.velocity.x += maxDeltaX;
-        player.body.velocity.y += maxDeltaY;
+        // Set the new velocity directly
+        player.body.velocity.x = safeVelX;
+        player.body.velocity.y = safeVelY;
         
-        // Cap velocity to prevent extreme speeds
-        this.capPlayerVelocity(player);
+        // Calculate the actual change for logging
+        const deltaX = safeVelX - currentVelX;
+        const deltaY = safeVelY - currentVelY;
         
         // Log extreme velocity changes for debugging
-        if (Math.abs(maxDeltaX) > 500 || Math.abs(maxDeltaY) > 500) {
+        if (Math.abs(deltaX) > 500 || Math.abs(deltaY) > 500) {
             console.warn('Large velocity change detected:', {
-                deltaX: maxDeltaX.toFixed(1),
-                deltaY: maxDeltaY.toFixed(1),
-                finalVelX: player.body.velocity.x.toFixed(1),
-                finalVelY: player.body.velocity.y.toFixed(1)
+                deltaX: deltaX.toFixed(1),
+                deltaY: deltaY.toFixed(1),
+                finalVelX: safeVelX.toFixed(1),
+                finalVelY: safeVelY.toFixed(1)
             });
         }
     }
 
     hitBalloon(player, balloon) {
+        // Check if launch protection is active
+        if (this.isLaunchProtectionActive()) {
+            return;
+        }
+        
+        // Only interact with balloons when falling down (not when flying up)
+        if (player.body.velocity.y < 0) {
+            return; // Pass through when flying upward
+        }
+        
         // Check collision cooldown
         if (this.isOnCooldown(balloon.name)) {
             return;
@@ -95,28 +147,50 @@ export class CollisionSystem {
         const originalVelocityY = player.body.velocity.y;
         const originalVelocityX = player.body.velocity.x;
         
-        // Apply safe velocity boost
-        this.safeVelocityChange(player, 
-            Math.sign(player.body.velocity.x) * 15, // Small horizontal boost
-            GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST // Vertical boost
-        );
+        // Check if Bufo lands on top of the balloon
+        const balloonTopY = balloon.y - (balloon.height * 0.3); // Top 30% of balloon
+        const isOnTop = player.y < balloonTopY; // Bufo is in the top area
+        const isMovingDown = player.body.velocity.y > 0; // Any downward movement
+        
+        if (isMovingDown && isOnTop) {
+            // Landing on top - give a small bounce instead of boost
+            this.safeVelocityChange(player, 
+                player.body.velocity.x * 0.9, // Maintain most horizontal momentum
+                -120 // Small upward bounce
+            );
+            this.debugLog(`Balloon top hit! Small bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_bounce');
+            
+            // Remove from age tracking before destroying
+            if (balloon.name) {
+                this.scene.objectSpawner.assetAgeMap.delete(balloon.name);
+            }
 
-        // Remove from age tracking before destroying
-        if (balloon.name) {
-            this.scene.objectSpawner.assetAgeMap.delete(balloon.name);
+            // Deactivate the balloon, hide it, and disable its physics body.
+            balloon.setActive(false).setVisible(false);
+            balloon.body.enable = false;
+            
+            // Add bounce visual effect
+            this.addBounceEffect(player.x, player.y);
+            
+            this.debugLog(`Balloon hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'balloon_hit');
+        } else {
+            // When falling but not on top, pass through (no interaction)
+            this.debugLog(`Balloon passed through while falling - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_pass_through');
+            return; // Exit without any collision effects
         }
-
-        // Deactivate the balloon, hide it, and disable its physics body.
-        balloon.setActive(false).setVisible(false);
-        balloon.body.enable = false;
-        
-        // Add a visual effect to show the boost
-        this.addBoostEffect(player.x, player.y);
-        
-        this.debugLog(`Balloon hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'balloon_hit');
     }
 
     hitBird(player, bird) {
+        // Check if launch protection is active
+        if (this.isLaunchProtectionActive()) {
+            return;
+        }
+        
+        // Only interact with birds when falling down (not when flying up)
+        if (player.body.velocity.y < 0) {
+            return; // Pass through when flying upward
+        }
+        
         // Check collision cooldown
         if (this.isOnCooldown(bird.name)) {
             return;
@@ -129,28 +203,50 @@ export class CollisionSystem {
         const originalVelocityY = player.body.velocity.y;
         const originalVelocityX = player.body.velocity.x;
         
-        // Apply safe velocity boost
-        this.safeVelocityChange(player,
-            bird.body.velocity.x * 0.2, // Horizontal momentum from bird
-            GAME_CONSTANTS.OBSTACLES.BIRD_BOOST // Vertical boost
-        );
+        // Check if Bufo lands on top of the bird
+        const birdTopY = bird.y - (bird.height * 0.3); // Top 30% of bird
+        const isOnTop = player.y < birdTopY; // Bufo is in the top area
+        const isMovingDown = player.body.velocity.y > 0; // Any downward movement
+        
+        if (isMovingDown && isOnTop) {
+            // Landing on top - give a small bounce instead of boost
+            this.safeVelocityChange(player,
+                player.body.velocity.x * 0.9, // Maintain most horizontal momentum
+                -140 // Slightly stronger bounce than balloons
+            );
+            this.debugLog(`Bird top hit! Small bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_bounce');
+            
+            // Remove from age tracking before destroying
+            if (bird.name) {
+                this.scene.objectSpawner.assetAgeMap.delete(bird.name);
+            }
 
-        // Remove from age tracking before destroying
-        if (bird.name) {
-            this.scene.objectSpawner.assetAgeMap.delete(bird.name);
+            // Deactivate the bird, hide it, and disable its physics body.
+            bird.setActive(false).setVisible(false);
+            bird.body.enable = false;
+            
+            // Add bounce visual effect
+            this.addBounceEffect(player.x, player.y);
+            
+            this.debugLog(`Bird hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'bird_hit');
+        } else {
+            // When falling but not on top, pass through (no interaction)
+            this.debugLog(`Bird passed through while falling - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_pass_through');
+            return; // Exit without any collision effects
         }
-
-        // Deactivate the bird, hide it, and disable its physics body.
-        bird.setActive(false).setVisible(false);
-        bird.body.enable = false;
-        
-        // Add a visual effect to show the boost
-        this.addBoostEffect(player.x, player.y);
-        
-        this.debugLog(`Bird hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'bird_hit');
     }
 
     hitCloud(player, cloud) {
+        // Check if launch protection is active
+        if (this.isLaunchProtectionActive()) {
+            return;
+        }
+        
+        // Only interact with clouds when falling down (not when flying up)
+        if (player.body.velocity.y < 0) {
+            return; // Pass through when flying upward
+        }
+        
         // Slow down the player's momentum
         player.body.velocity.x *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
         player.body.velocity.y *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
@@ -196,6 +292,39 @@ export class CollisionSystem {
             duration: 150, // Reduced from 200
             ease: 'Power1',
             onComplete: () => boostEffect.destroy()
+        });
+    }
+
+    addBounceEffect(x, y) {
+        // Create a visual effect to show the bounce (different from boost)
+        const bounceEffect = this.scene.add.graphics()
+            .lineStyle(2, 0x87CEEB, 0.6) // Sky blue color
+            .strokeCircle(x, y, 12);
+        
+        // Add inner circle for bounce effect
+        const innerEffect = this.scene.add.graphics()
+            .fillStyle(0x87CEEB, 0.3)
+            .fillCircle(x, y, 8);
+        
+        // Animate the bounce effect with a different pattern
+        this.scene.tweens.add({
+            targets: bounceEffect,
+            scaleX: 1.5,
+            scaleY: 1.5,
+            alpha: 0,
+            duration: 200,
+            ease: 'Bounce.easeOut',
+            onComplete: () => bounceEffect.destroy()
+        });
+        
+        this.scene.tweens.add({
+            targets: innerEffect,
+            scaleX: 2,
+            scaleY: 2,
+            alpha: 0,
+            duration: 180,
+            ease: 'Power2',
+            onComplete: () => innerEffect.destroy()
         });
     }
 
@@ -300,12 +429,26 @@ export class CollisionSystem {
     }
 
     onPlayerLand() {
+        const now = Date.now();
+        
+        // OPTIMIZATION: Add cooldown to prevent excessive landing checks
+        if (now - this.lastLandingCheck < this.landingCheckCooldown) {
+            return;
+        }
+        this.lastLandingCheck = now;
+        
         this.debugLog('=== LANDING DETECTED ===', 'landing_detected');
         this.debugLog(`Player state: isPulling=${this.scene.isPulling}, isAirborne=${this.scene.isAirborne}, hasBeenLaunched=${this.scene.hasBeenLaunched}, isLanded=${this.scene.isLanded}`, 'player_state');
         
         // Don't handle ground collision during pulling - let the player move freely
         if (this.scene.isPulling) {
             this.debugLog('Landing ignored - player is pulling', 'landing_ignored_pulling');
+            return;
+        }
+        
+        // CRITICAL FIX: Don't process landing if player is already landed
+        if (this.scene.isLanded) {
+            this.debugLog('Landing ignored - player is already landed', 'landing_ignored_already_landed');
             return;
         }
         

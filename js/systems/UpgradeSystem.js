@@ -39,7 +39,7 @@ export class UpgradeSystem {
                 maxLevel: 3,
                 cost: 250, // Tier 1 cost
                 thrust: 8,
-                fuelCapacity: 50, // Tier 1 fuel capacity
+                fuelCapacity: 63, // Tier 1 fuel capacity (increased by 25%)
                 canMoveUp: false, // Tier 1: only left/right
                 tier1Cost: 250,
                 tier2Cost: 400,
@@ -98,7 +98,7 @@ export class UpgradeSystem {
         switch (upgrade.level) {
             case 1: // Tier 1: Basic left/right movement with small fuel tank
                 upgrade.cost = upgrade.tier2Cost; // Set cost for next tier
-                upgrade.fuelCapacity = 50;
+                upgrade.fuelCapacity = 63; // Increased by 25% (was 50)
                 upgrade.canMoveUp = false;
                 upgrade.thrust = 8;
                 return { 
@@ -110,7 +110,7 @@ export class UpgradeSystem {
             
             case 2: // Tier 2: Same functionality but larger fuel tank
                 upgrade.cost = upgrade.tier3Cost; // Set cost for next tier
-                upgrade.fuelCapacity = 150;
+                upgrade.fuelCapacity = 188; // Increased by 25% (was 150)
                 upgrade.canMoveUp = false;
                 upgrade.thrust = 8;
                 return { 
@@ -122,7 +122,7 @@ export class UpgradeSystem {
             
             case 3: // Tier 3: Full functionality with upward movement
                 upgrade.cost = 0; // Max level reached
-                upgrade.fuelCapacity = 200;
+                upgrade.fuelCapacity = 250; // Increased by 25% (was 200)
                 upgrade.canMoveUp = true;
                 upgrade.thrust = 10;
                 return { 

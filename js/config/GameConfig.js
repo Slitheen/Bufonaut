@@ -13,6 +13,7 @@ export const UI_THEME = {
 export const GAME_CONSTANTS = {
     WORLD_TOP: -50000,
     GROUND_HEIGHT: 180, // Increased for additional grass row
+    GRAVITY: 800, // Gravity value for realistic falling speed
     PLAYER: {
         SIZE: 75,
         START_Y_OFFSET: 60,
@@ -99,7 +100,7 @@ export const PHASER_CONFIG = {
     physics: {
         default: 'arcade',
         arcade: {
-            gravity: { y: 300 },
+            gravity: { y: GAME_CONSTANTS.GRAVITY }, // Use consistent gravity value
             debug: false,
             fps: 144, // Match game frame rate for smooth physics
             timeScale: 1,

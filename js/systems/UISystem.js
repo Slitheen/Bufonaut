@@ -114,9 +114,11 @@ export class UISystem {
         // Initialize grass tiles array
         this.grassTiles = [];
         
+        // FIXED: Position grass tiles properly for pulling space with new camera setup
+        // Main grass tile at ground level (bottom of screen)
         const mainGrassTile = this.scene.add.tileSprite(
             this.scene.cameras.main.width / 2,
-            this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2),
+            this.scene.groundLevel,
             this.scene.cameras.main.width,
             GAME_CONSTANTS.GROUND_HEIGHT,
             mainGrassTexture
@@ -124,11 +126,12 @@ export class UISystem {
         this.grassTiles.push(mainGrassTile);
         
         // Create multiple additional rows of grass tiles for extended pull range
-        const grassTileHeight = 60; // Height of each grass tile
+        const grassTileHeight = 80; // Increased height for better visual and pulling space
         
-        // Add 3 additional rows of grass tiles to extend the pullable area (4 total rows including main ground)
-        for (let i = 1; i <= 3; i++) { // Add 3 additional rows
-            const additionalGrassY = this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2) - (grassTileHeight * i);
+        // Add 4 additional rows of grass tiles BELOW the main ground for balanced pull space
+        // This prevents exploiting extra pull-down space while maintaining fair gameplay
+        for (let i = 1; i <= 4; i++) { // Reduced to 4 rows for balanced pull distance
+            const additionalGrassY = this.scene.groundLevel + (grassTileHeight * i);
             
             // Use random grass variation for each row to create more natural variation
             const randomGrassTexture = Phaser.Math.RND.pick(grassVariations);
@@ -328,7 +331,7 @@ export class UISystem {
             // Re-enable gravity after a short delay to allow for launching
             this.scene.time.delayedCall(200, () => {
                 if (this.scene.player) {
-                    this.scene.player.body.setGravityY(300); // Re-enable gravity
+                    this.scene.player.body.setGravityY(GAME_CONSTANTS.GRAVITY); // Re-enable gravity with proper falling speed
                 }
             });
         }
@@ -664,7 +667,7 @@ export class UISystem {
 
                 // Re-enable physics and set up for launch
                 this.scene.player.body.setEnable(true); // Re-enable the physics body
-                this.scene.player.body.setGravityY(300);
+                this.scene.player.body.setGravityY(GAME_CONSTANTS.GRAVITY); // Use proper falling speed
                 this.scene.player.body.setBounce(0.1, 0.1);
                 this.scene.player.body.setFriction(0.1);
                 
@@ -679,6 +682,9 @@ export class UISystem {
                     // Set airborne state after velocity is applied
                     this.scene.isAirborne = true;
                     this.scene.hasBeenLaunched = true; // Mark as properly launched
+                    
+                    // Start launch protection to prevent immediate collisions
+                    this.scene.collisionSystem.startLaunchProtection(this.scene.player.y);
                     this.scene.launchTime = this.scene.time.now;
                     this.scene.peakY = this.scene.player.y;
                     this.scene.launchCount++;
@@ -1718,17 +1724,17 @@ export class UISystem {
         const mainGrassTexture = Phaser.Math.RND.pick(grassVariations);
         const mainGrassTile = this.scene.add.tileSprite(
             this.scene.cameras.main.width / 2,
-            this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2),
+            this.scene.groundLevel,
             this.scene.cameras.main.width,
             GAME_CONSTANTS.GROUND_HEIGHT,
             mainGrassTexture
         );
         this.grassTiles.push(mainGrassTile);
         
-        // Create additional grass rows
-        const grassTileHeight = 60;
-        for (let i = 1; i <= 3; i++) {
-            const additionalGrassY = this.scene.cameras.main.height - (GAME_CONSTANTS.GROUND_HEIGHT / 2) - (grassTileHeight * i);
+        // Create additional grass rows below the main ground for balanced pull space
+        const grassTileHeight = 80;
+        for (let i = 1; i <= 4; i++) { // Reduced to 4 rows for balanced pull distance
+            const additionalGrassY = this.scene.groundLevel + (grassTileHeight * i);
             const randomGrassTexture = Phaser.Math.RND.pick(grassVariations);
             
             const grassTile = this.scene.add.tileSprite(

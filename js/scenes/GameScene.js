@@ -80,6 +80,16 @@ export class GameScene extends Phaser.Scene {
         // Setup world
         this.physics.world.setBounds(0, GAME_CONSTANTS.WORLD_TOP, this.cameras.main.width, this.cameras.main.height - GAME_CONSTANTS.WORLD_TOP);
         this.groundLevel = this.cameras.main.height - GAME_CONSTANTS.GROUND_HEIGHT;
+        
+        // CRITICAL FIX: Set initial camera position with grass edge at bottom of screen
+        // Position camera so the bottom edge of the grass is at the bottom of the screen
+        const grassTileHeight = 80;
+        const additionalGrassRows = 4;
+        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows); // Bottom of the 4th additional row
+        const initialCameraY = grassBottomEdge - this.cameras.main.height; // Bottom edge of grass at bottom of screen
+        this.cameras.main.scrollX = 0;
+        this.cameras.main.scrollY = initialCameraY;
+        console.log(`Initial camera position set with grass edge at bottom: scrollX=${this.cameras.main.scrollX}, scrollY=${this.cameras.main.scrollY}, groundLevel=${this.groundLevel}, grassBottomEdge=${grassBottomEdge}`);
 
         // Create seamless world background
         this.createSeamlessBackground();
@@ -444,13 +454,18 @@ export class GameScene extends Phaser.Scene {
             cloudBreached: this.uiSystem.cloudBreached
         });
 
-        // Reset camera to launch position instead of center
-        const launchCameraY = this.groundLevel - 200; // Focus slightly above the launch platform
-        this.cameras.main.pan(this.cameras.main.width / 2, launchCameraY, 500, 'Sine.easeInOut');
+        // CRITICAL FIX: Reset camera to proper launch position with grass edge at bottom
+        // Position camera so the bottom edge of the grass is at the bottom of the screen
+        const grassTileHeight = 80;
+        const additionalGrassRows = 4;
+        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
+        const properCameraY = grassBottomEdge - this.cameras.main.height;
+        this.cameras.main.pan(this.cameras.main.width / 2, properCameraY + this.cameras.main.height / 2, 500, 'Sine.easeInOut');
         
-        // Also directly set camera position to ensure it sticks
-        this.cameras.main.scrollY = launchCameraY - this.cameras.main.height / 2;
-        console.log(`Camera reset to launch position: scrollY=${this.cameras.main.scrollY}`);
+        // Reset camera scroll for proper pull calculations with grass edge at bottom
+        this.cameras.main.scrollX = 0;
+        this.cameras.main.scrollY = properCameraY;
+        console.log(`Camera reset to proper launch position with grass edge at bottom: scrollX=${this.cameras.main.scrollX}, scrollY=${this.cameras.main.scrollY}, groundLevel=${this.groundLevel}, grassBottomEdge=${grassBottomEdge}`);
 
         this.player.body.stop();
         this.player.setAngle(0); // Reset rotation when landing
@@ -539,10 +554,14 @@ export class GameScene extends Phaser.Scene {
         this.player.setTexture(this.upgradeSystem.hasRocket() ? 'bufo_rocket' : 'bufo');
         this.player.setPosition(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
 
-        // Reset camera to launch position
-        const launchCameraY = this.groundLevel - 200; // Focus slightly above the launch platform
-        this.cameras.main.scrollY = launchCameraY - this.cameras.main.height / 2;
-        console.log(`Camera reset to launch position: scrollY=${this.cameras.main.scrollY}`);
+        // Reset camera to proper launch position with grass edge at bottom
+        const grassTileHeight = 80;
+        const additionalGrassRows = 4;
+        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
+        const properCameraY = grassBottomEdge - this.cameras.main.height;
+        this.cameras.main.scrollX = 0;
+        this.cameras.main.scrollY = properCameraY;
+        console.log(`Camera reset to proper launch position with grass edge at bottom: scrollX=${this.cameras.main.scrollX}, scrollY=${this.cameras.main.scrollY}, groundLevel=${this.groundLevel}, grassBottomEdge=${grassBottomEdge}`);
 
         // Reset cloud breach state
         this.uiSystem.cloudBreached = false;
@@ -669,7 +688,7 @@ export class GameScene extends Phaser.Scene {
         
         // Reset player physics and position
         this.player.body.stop();
-        this.player.body.setGravityY(300); // Use default gravity value
+        this.player.body.setGravityY(GAME_CONSTANTS.GRAVITY); // Use proper falling speed
         this.player.body.setVelocity(0, 0);
         this.player.setPosition(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
         this.player.setAngle(0);
@@ -710,6 +729,10 @@ export class GameScene extends Phaser.Scene {
         // Set airborne state
         this.isAirborne = true;
         console.log('Setting isAirborne = true during debug launch');
+        
+        // Start launch protection to prevent immediate collisions
+        this.collisionSystem.startLaunchProtection(this.player.y);
+        
         this.launchTime = this.time.now;
         this.peakY = this.player.y;
         this.launchCount++;
@@ -781,29 +804,21 @@ export class GameScene extends Phaser.Scene {
         bottomTile.setDepth(-1000);
         this.backgroundTiles.push(bottomTile);
         
-        // Progressive loading: Create upper sections with slight delays to prioritize bottom
+        // Load all background sections immediately to prevent top-to-bottom loading appearance
         for (let i = 1; i < repeatCount; i++) {
-            this.time.delayedCall(i * 50, () => { // 50ms delay between each section
-                const tile = this.add.image(0, i * scaledBgHeight, 'world_background');
-                tile.setOrigin(0, 0);
-                tile.setScale(scaleX, scaleX);
-                tile.setDepth(-1000);
-                
-                // Apply initial positioning immediately
-                tile.y += this.initialBackgroundY;
-                
-                // Start with reduced alpha and fade in
-                tile.setAlpha(0);
-                this.tweens.add({
-                    targets: tile,
-                    alpha: 1,
-                    duration: 200,
-                    ease: 'Power2'
-                });
-                
-                this.backgroundTiles.push(tile);
-                console.log(`Background section ${i + 1}/${repeatCount} loaded and positioned`);
-            });
+            const tile = this.add.image(0, i * scaledBgHeight, 'world_background');
+            tile.setOrigin(0, 0);
+            tile.setScale(scaleX, scaleX);
+            tile.setDepth(-1000);
+            
+            // Apply initial positioning immediately
+            tile.y += this.initialBackgroundY;
+            
+            // Set full alpha immediately - no fade in effect
+            tile.setAlpha(1);
+            
+            this.backgroundTiles.push(tile);
+            console.log(`Background section ${i + 1}/${repeatCount} loaded and positioned`);
         }
         
         // Position the background so the ground level is at the bottom of the screen initially
