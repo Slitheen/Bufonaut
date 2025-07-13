@@ -2997,6 +2997,11 @@ export class UISystem {
                 });
             }
         }
+        
+        // Also update upgrade shop button colors if shop is open
+        if (this.upgradeShopContainer && this.upgradeShopContainer.visible) {
+            this.updateUpgradeShop();
+        }
     }
 
     canAffordAnyUpgrade() {
