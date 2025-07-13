@@ -133,10 +133,23 @@ export class CollisionSystem {
         const currentVelX = player.body.velocity.x;
         const currentVelY = player.body.velocity.y;
         
-        // Limit velocity to prevent extreme speeds
-        const maxVel = GAME_CONSTANTS.PLAYER.MAX_VELOCITY;
-        const safeVelX = Math.sign(newVelX) * Math.min(Math.abs(newVelX), maxVel);
-        const safeVelY = Math.sign(newVelY) * Math.min(Math.abs(newVelY), maxVel);
+        // Apply directional velocity limits for better control
+        const maxHorizontalVel = GAME_CONSTANTS.PLAYER.MAX_VELOCITY;
+        const maxDownwardVel = GAME_CONSTANTS.PLAYER.MAX_DOWNWARD_VELOCITY;
+        const maxUpwardVel = GAME_CONSTANTS.PLAYER.MAX_UPWARD_VELOCITY;
+        
+        // Cap horizontal velocity
+        const safeVelX = Math.sign(newVelX) * Math.min(Math.abs(newVelX), maxHorizontalVel);
+        
+        // Cap vertical velocity based on direction
+        let safeVelY;
+        if (newVelY > 0) {
+            // Falling down - apply downward velocity cap
+            safeVelY = Math.min(newVelY, maxDownwardVel);
+        } else {
+            // Moving up - apply upward velocity cap
+            safeVelY = Math.max(newVelY, -maxUpwardVel);
+        }
         
         // Set the new velocity directly
         player.body.velocity.x = safeVelX;
@@ -146,13 +159,14 @@ export class CollisionSystem {
         const deltaX = safeVelX - currentVelX;
         const deltaY = safeVelY - currentVelY;
         
-        // Log extreme velocity changes for debugging (increased threshold for doubled bounces)
-        if (Math.abs(deltaX) > 1000 || Math.abs(deltaY) > 1000) {
-            console.warn('Large velocity change detected:', {
-                deltaX: deltaX.toFixed(1),
-                deltaY: deltaY.toFixed(1),
-                finalVelX: safeVelX.toFixed(1),
-                finalVelY: safeVelY.toFixed(1)
+        // Log velocity capping events
+        if (Math.abs(newVelX) > maxHorizontalVel || Math.abs(newVelY) > (newVelY > 0 ? maxDownwardVel : maxUpwardVel)) {
+            console.log('Velocity capped:', {
+                requestedX: newVelX.toFixed(1),
+                requestedY: newVelY.toFixed(1),
+                cappedX: safeVelX.toFixed(1),
+                cappedY: safeVelY.toFixed(1),
+                direction: newVelY > 0 ? 'falling' : 'rising'
             });
         }
     }
@@ -401,15 +415,23 @@ export class CollisionSystem {
     }
 
     capPlayerVelocity(player) {
-        // Cap both X and Y velocity to prevent extreme speeds
-        const maxVel = GAME_CONSTANTS.PLAYER.MAX_VELOCITY;
+        // Cap velocity with directional limits for better control
+        const maxHorizontalVel = GAME_CONSTANTS.PLAYER.MAX_VELOCITY;
+        const maxDownwardVel = GAME_CONSTANTS.PLAYER.MAX_DOWNWARD_VELOCITY;
+        const maxUpwardVel = GAME_CONSTANTS.PLAYER.MAX_UPWARD_VELOCITY;
         
-        if (Math.abs(player.body.velocity.x) > maxVel) {
-            player.body.velocity.x = Math.sign(player.body.velocity.x) * maxVel;
+        // Cap horizontal velocity
+        if (Math.abs(player.body.velocity.x) > maxHorizontalVel) {
+            player.body.velocity.x = Math.sign(player.body.velocity.x) * maxHorizontalVel;
         }
         
-        if (Math.abs(player.body.velocity.y) > maxVel) {
-            player.body.velocity.y = Math.sign(player.body.velocity.y) * maxVel;
+        // Cap vertical velocity based on direction
+        if (player.body.velocity.y > maxDownwardVel) {
+            // Falling too fast - cap downward velocity
+            player.body.velocity.y = maxDownwardVel;
+        } else if (player.body.velocity.y < -maxUpwardVel) {
+            // Moving up too fast - cap upward velocity
+            player.body.velocity.y = -maxUpwardVel;
         }
     }
 

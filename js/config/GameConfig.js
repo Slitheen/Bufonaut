@@ -20,7 +20,9 @@ export const GAME_CONSTANTS = {
         SIZE: 75,
         START_Y_OFFSET: 60,
         NUDGE_THRUST: .5,
-        MAX_VELOCITY: 3000, // Increased to allow higher speeds with upgrades
+        MAX_VELOCITY: 3000, // Maximum overall velocity
+        MAX_DOWNWARD_VELOCITY: 1200, // Cap downward velocity for better control
+        MAX_UPWARD_VELOCITY: 2500, // Allow higher upward velocity for good bounces
     },
     OBSTACLES: {
         BALLOON_COUNT: 30,

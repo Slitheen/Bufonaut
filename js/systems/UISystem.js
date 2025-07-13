@@ -2299,12 +2299,12 @@ export class UISystem {
         let buttonText = 'BUY';
         
         if (isMaxed) {
-            buttonColor = 0x2a5a2a;
+            buttonColor = 0x28a745; // Green for maxed out
             buttonText = 'MAX';
         } else if (canAfford) {
-            buttonColor = 0x4a6a2a;
+            buttonColor = 0x28a745; // Bright green when affordable
         } else {
-            buttonColor = 0x5a2a2a;
+            buttonColor = 0xdc3545; // Red when not affordable
         }
         
         buttonBg.fillStyle(buttonColor, 1);
@@ -2683,12 +2683,12 @@ export class UISystem {
         let buttonText = 'BUY';
         
         if (isMaxed) {
-            buttonColor = 0x2a5a2a;
+            buttonColor = 0x28a745; // Green for maxed out
             buttonText = 'MAX';
         } else if (canAfford) {
-            buttonColor = 0x4a6a2a;
+            buttonColor = 0x28a745; // Bright green when affordable
         } else {
-            buttonColor = 0x5a2a2a;
+            buttonColor = 0xdc3545; // Red when not affordable
         }
         
         buttonBg.fillStyle(buttonColor, 1);

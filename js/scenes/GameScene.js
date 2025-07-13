@@ -327,6 +327,9 @@ export class GameScene extends Phaser.Scene {
                         this.player.body.velocity.y *= 0.9998; // Much gentler slowdown
                     }
                 }
+                
+                // Always cap player velocity to prevent extreme speeds
+                this.collisionSystem.capPlayerVelocity(this.player);
             }
 
         } else {
