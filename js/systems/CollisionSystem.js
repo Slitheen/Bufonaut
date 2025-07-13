@@ -8,7 +8,7 @@ export class CollisionSystem {
         
         // Collision cooldown tracking to prevent multiple hits on same object
         this.collisionCooldowns = new Map();
-        this.collisionCooldownTime = 500; // 500ms cooldown between hits on same object
+        this.collisionCooldownTime = 1000; // 1000ms cooldown between hits on same object (increased to prevent bouncing loops)
         
         // Velocity tracking to prevent extreme boosts
         this.lastVelocityY = 0;
@@ -113,8 +113,8 @@ export class CollisionSystem {
         const deltaX = safeVelX - currentVelX;
         const deltaY = safeVelY - currentVelY;
         
-        // Log extreme velocity changes for debugging
-        if (Math.abs(deltaX) > 500 || Math.abs(deltaY) > 500) {
+        // Log extreme velocity changes for debugging (increased threshold for doubled bounces)
+        if (Math.abs(deltaX) > 1000 || Math.abs(deltaY) > 1000) {
             console.warn('Large velocity change detected:', {
                 deltaX: deltaX.toFixed(1),
                 deltaY: deltaY.toFixed(1),
@@ -165,12 +165,23 @@ export class CollisionSystem {
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
         
         if (isMovingDown && isOnTop) {
-            // Landing on top - give a significant bounce (3-4 Bufo heights: 225-300 pixels)
-            this.safeVelocityChange(player, 
-                player.body.velocity.x * 0.9, // Maintain most horizontal momentum
-                -450 // Strong upward bounce for 3-4 Bufo heights (was -150)
-            );
-            this.debugLog(`Balloon top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_bounce');
+            // Landing on top - give a strong bounce (4-6 Bufo heights: 300-450 pixels)
+            // Check if player's velocity is already very negative (recently bounced)
+            const currentVelY = player.body.velocity.y;
+            if (currentVelY < -300) {
+                // Player is already bouncing upward significantly, but still give a good bounce
+                this.safeVelocityChange(player, 
+                    player.body.velocity.x * 0.98, // Maintain almost all horizontal momentum
+                    Math.max(currentVelY, -500) // Strong bounce even with existing upward velocity
+                );
+                this.debugLog(`Balloon bounce reduced due to existing upward velocity: ${currentVelY.toFixed(1)}`, 'balloon_reduced_bounce');
+            } else {
+                this.safeVelocityChange(player, 
+                    player.body.velocity.x * 0.95, // Maintain more horizontal momentum
+                    -600 // Strong upward bounce for 4-6 Bufo heights (doubled from -300)
+                );
+                this.debugLog(`Balloon top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_bounce');
+            }
             
             // Add bounce visual effect
             this.addBounceEffect(player.x, player.y);
@@ -223,12 +234,23 @@ export class CollisionSystem {
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
         
         if (isMovingDown && isOnTop) {
-            // Landing on top - give a significant bounce (3-4 Bufo heights: 225-300 pixels)
-            this.safeVelocityChange(player,
-                player.body.velocity.x * 0.9, // Maintain most horizontal momentum
-                -475 // Strong upward bounce for 3-4 Bufo heights, slightly stronger than balloons (was -175)
-            );
-            this.debugLog(`Bird top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_bounce');
+            // Landing on top - give a strong bounce (5-7 Bufo heights: 375-525 pixels)
+            // Check if player's velocity is already very negative (recently bounced)
+            const currentVelY = player.body.velocity.y;
+            if (currentVelY < -300) {
+                // Player is already bouncing upward significantly, but still give a good bounce
+                this.safeVelocityChange(player,
+                    player.body.velocity.x * 0.98, // Maintain almost all horizontal momentum
+                    Math.max(currentVelY, -540) // Strong bounce even with existing upward velocity
+                );
+                this.debugLog(`Bird bounce reduced due to existing upward velocity: ${currentVelY.toFixed(1)}`, 'bird_reduced_bounce');
+            } else {
+                this.safeVelocityChange(player,
+                    player.body.velocity.x * 0.95, // Maintain more horizontal momentum
+                    -640 // Strong upward bounce for 5-7 Bufo heights (doubled from -320)
+                );
+                this.debugLog(`Bird top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_bounce');
+            }
             
             // Add bounce visual effect
             this.addBounceEffect(player.x, player.y);
