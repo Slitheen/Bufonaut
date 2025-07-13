@@ -161,8 +161,19 @@ export class CollisionSystem {
         
         // Check if Bufo lands on top of the balloon
         const balloonTopY = balloon.y - (balloon.height * 0.3); // Top 30% of balloon
+        const balloonBottomY = balloon.y + (balloon.height * 0.5); // Bottom 50% of balloon
         const isOnTop = player.y < balloonTopY; // Bufo is in the top area
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
+        
+        // Spatial validation: Check if collision makes sense
+        const spatialDistance = Math.abs(player.y - balloon.y);
+        const maxCollisionDistance = (balloon.height + player.height) * 0.6; // Allow some overlap
+        
+        if (spatialDistance > maxCollisionDistance) {
+            // Player is too far from balloon for a real collision - treat as pass-through
+            this.debugLog(`Balloon collision rejected - too far apart: PlayerY: ${player.y.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}`, 'balloon_false_collision');
+            return;
+        }
         
         if (isMovingDown) {
             // Landing on balloon - give bounce based on position
@@ -248,8 +259,19 @@ export class CollisionSystem {
         
         // Check if Bufo lands on top of the bird
         const birdTopY = bird.y - (bird.height * 0.3); // Top 30% of bird
+        const birdBottomY = bird.y + (bird.height * 0.5); // Bottom 50% of bird
         const isOnTop = player.y < birdTopY; // Bufo is in the top area
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
+        
+        // Spatial validation: Check if collision makes sense
+        const spatialDistance = Math.abs(player.y - bird.y);
+        const maxCollisionDistance = (bird.height + player.height) * 0.6; // Allow some overlap
+        
+        if (spatialDistance > maxCollisionDistance) {
+            // Player is too far from bird for a real collision - treat as pass-through
+            this.debugLog(`Bird collision rejected - too far apart: PlayerY: ${player.y.toFixed(1)}, BirdY: ${bird.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}`, 'bird_false_collision');
+            return;
+        }
         
         if (isMovingDown) {
             // Landing on bird - give bounce based on position
