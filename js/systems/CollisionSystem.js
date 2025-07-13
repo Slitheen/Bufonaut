@@ -25,6 +25,39 @@ export class CollisionSystem {
         this.launchProtectionDuration = 1500; // 1.5s protection after launch
         this.launchStartY = 0; // Y position when launched
         this.launchProtectionDistance = 300; // Distance player must travel from launch
+        
+        // Tighter collision boundaries for different object types
+        this.collisionBounds = {
+            balloon: {
+                maxDistance: 80,      // Reduced from 150
+                horizontalRadius: 45, // Horizontal collision radius
+                verticalRadius: 60,   // Vertical collision radius
+                topZone: 0.2,        // Reduced from 0.3 (20% of height)
+                bottomZone: 0.4      // Reduced from 0.5 (40% of height)
+            },
+            bird: {
+                maxDistance: 85,      // Reduced from 150
+                horizontalRadius: 50, // Horizontal collision radius
+                verticalRadius: 55,   // Vertical collision radius  
+                topZone: 0.25,       // Reduced from 0.3 (25% of height)
+                bottomZone: 0.35     // Reduced from 0.5 (35% of height)
+            },
+            cloud: {
+                maxDistance: 90,      // Clouds can be slightly larger
+                horizontalRadius: 60, // Horizontal collision radius
+                verticalRadius: 50    // Vertical collision radius
+            },
+            coin: {
+                maxDistance: 40,      // Small collision area for coins
+                horizontalRadius: 25, // Horizontal collision radius
+                verticalRadius: 25    // Vertical collision radius
+            },
+            gasTank: {
+                maxDistance: 50,      // Medium collision area for gas tanks
+                horizontalRadius: 30, // Horizontal collision radius
+                verticalRadius: 35    // Vertical collision radius
+            }
+        };
     }
     
     // Clear all collision cooldowns (called when restarting day)
@@ -124,6 +157,28 @@ export class CollisionSystem {
         }
     }
 
+    // Enhanced 2D spatial validation using elliptical collision bounds
+    validateSpatialCollision(player, object, objectType) {
+        const bounds = this.collisionBounds[objectType];
+        if (!bounds) return true; // Fallback to allow collision if no bounds defined
+        
+        // Calculate distance in both directions
+        const deltaX = Math.abs(player.x - object.x);
+        const deltaY = Math.abs(player.y - object.y);
+        
+        // Check if collision is within elliptical bounds
+        const normalizedX = deltaX / bounds.horizontalRadius;
+        const normalizedY = deltaY / bounds.verticalRadius;
+        const distanceSquared = (normalizedX * normalizedX) + (normalizedY * normalizedY);
+        
+        const isWithinBounds = distanceSquared <= 1.0;
+        
+        // Debug logging for spatial validation
+        this.debugLog(`${objectType} spatial validation: DeltaX: ${deltaX.toFixed(1)}, DeltaY: ${deltaY.toFixed(1)}, NormX: ${normalizedX.toFixed(2)}, NormY: ${normalizedY.toFixed(2)}, DistSq: ${distanceSquared.toFixed(2)}, Valid: ${isWithinBounds}`, `${objectType}_spatial_debug`);
+        
+        return isWithinBounds;
+    }
+
     hitBalloon(player, balloon) {
         // Check if launch protection is active
         if (this.isLaunchProtectionActive()) {
@@ -132,6 +187,12 @@ export class CollisionSystem {
         
         // Check collision cooldown
         if (this.isOnCooldown(balloon.name)) {
+            return;
+        }
+        
+        // Enhanced spatial validation using 2D elliptical bounds
+        if (!this.validateSpatialCollision(player, balloon, 'balloon')) {
+            this.debugLog(`Balloon collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, BalloonX: ${balloon.x.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}`, 'balloon_spatial_reject');
             return;
         }
         
@@ -159,24 +220,12 @@ export class CollisionSystem {
         const originalVelocityY = player.body.velocity.y;
         const originalVelocityX = player.body.velocity.x;
         
-        // Check if Bufo lands on top of the balloon
-        const balloonTopY = balloon.y - (balloon.height * 0.3); // Top 30% of balloon
-        const balloonBottomY = balloon.y + (balloon.height * 0.5); // Bottom 50% of balloon
+        // Use tighter collision zones for more precise positioning
+        const bounds = this.collisionBounds.balloon;
+        const balloonTopY = balloon.y - (balloon.height * bounds.topZone); // Top 20% of balloon (tighter)
+        const balloonBottomY = balloon.y + (balloon.height * bounds.bottomZone); // Bottom 40% of balloon (tighter)
         const isOnTop = player.y < balloonTopY; // Bufo is in the top area
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
-        
-        // Spatial validation: Check if collision makes sense
-        const spatialDistance = Math.abs(player.y - balloon.y);
-        const maxCollisionDistance = 150; // Fixed reasonable collision distance (about 2x player height)
-        
-        // Debug log spatial validation values
-        this.debugLog(`Spatial validation: PlayerY: ${player.y.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}, MaxDistance: ${maxCollisionDistance.toFixed(1)}, BalloonHeight: ${balloon.height}, PlayerHeight: ${player.height}`, 'balloon_spatial_debug');
-        
-        if (spatialDistance > maxCollisionDistance) {
-            // Player is too far from balloon for a real collision - treat as pass-through
-            this.debugLog(`Balloon collision rejected - too far apart: PlayerY: ${player.y.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}`, 'balloon_false_collision');
-            return;
-        }
         
         if (isMovingDown) {
             // Landing on balloon - give bounce based on position
@@ -236,6 +285,12 @@ export class CollisionSystem {
             return;
         }
         
+        // Enhanced spatial validation using 2D elliptical bounds
+        if (!this.validateSpatialCollision(player, bird, 'bird')) {
+            this.debugLog(`Bird collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, BirdX: ${bird.x.toFixed(1)}, BirdY: ${bird.y.toFixed(1)}`, 'bird_spatial_reject');
+            return;
+        }
+        
         // Set cooldown for this bird
         this.setCooldown(bird.name);
         
@@ -260,24 +315,12 @@ export class CollisionSystem {
         const originalVelocityY = player.body.velocity.y;
         const originalVelocityX = player.body.velocity.x;
         
-        // Check if Bufo lands on top of the bird
-        const birdTopY = bird.y - (bird.height * 0.3); // Top 30% of bird
-        const birdBottomY = bird.y + (bird.height * 0.5); // Bottom 50% of bird
+        // Use tighter collision zones for more precise positioning
+        const bounds = this.collisionBounds.bird;
+        const birdTopY = bird.y - (bird.height * bounds.topZone); // Top 25% of bird (tighter)
+        const birdBottomY = bird.y + (bird.height * bounds.bottomZone); // Bottom 35% of bird (tighter)
         const isOnTop = player.y < birdTopY; // Bufo is in the top area
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
-        
-        // Spatial validation: Check if collision makes sense
-        const spatialDistance = Math.abs(player.y - bird.y);
-        const maxCollisionDistance = 150; // Fixed reasonable collision distance (about 2x player height)
-        
-        // Debug log spatial validation values
-        this.debugLog(`Spatial validation: PlayerY: ${player.y.toFixed(1)}, BirdY: ${bird.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}, MaxDistance: ${maxCollisionDistance.toFixed(1)}, BirdHeight: ${bird.height}, PlayerHeight: ${player.height}`, 'bird_spatial_debug');
-        
-        if (spatialDistance > maxCollisionDistance) {
-            // Player is too far from bird for a real collision - treat as pass-through
-            this.debugLog(`Bird collision rejected - too far apart: PlayerY: ${player.y.toFixed(1)}, BirdY: ${bird.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}`, 'bird_false_collision');
-            return;
-        }
         
         if (isMovingDown) {
             // Landing on bird - give bounce based on position
@@ -329,6 +372,12 @@ export class CollisionSystem {
     hitCloud(player, cloud) {
         // Check if launch protection is active
         if (this.isLaunchProtectionActive()) {
+            return;
+        }
+        
+        // Enhanced spatial validation using 2D elliptical bounds
+        if (!this.validateSpatialCollision(player, cloud, 'cloud')) {
+            this.debugLog(`Cloud collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, CloudX: ${cloud.x.toFixed(1)}, CloudY: ${cloud.y.toFixed(1)}`, 'cloud_spatial_reject');
             return;
         }
         
@@ -440,6 +489,12 @@ export class CollisionSystem {
     }
 
     hitCoin(player, coin) {
+        // Enhanced spatial validation using 2D elliptical bounds
+        if (!this.validateSpatialCollision(player, coin, 'coin')) {
+            this.debugLog(`Coin collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, CoinX: ${coin.x.toFixed(1)}, CoinY: ${coin.y.toFixed(1)}`, 'coin_spatial_reject');
+            return;
+        }
+        
         // Add coins to the player's total
         const coinsEarned = GAME_CONSTANTS.REWARDS.COIN_VALUE;
         this.scene.upgradeSystem.addCoins(coinsEarned);
@@ -461,6 +516,12 @@ export class CollisionSystem {
     }
 
     hitGasTank(player, gasTank) {
+        // Enhanced spatial validation using 2D elliptical bounds
+        if (!this.validateSpatialCollision(player, gasTank, 'gasTank')) {
+            this.debugLog(`Gas tank collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, GasTankX: ${gasTank.x.toFixed(1)}, GasTankY: ${gasTank.y.toFixed(1)}`, 'gasTank_spatial_reject');
+            return;
+        }
+        
         // Refill fuel if player has a rocket
         if (this.scene.upgradeSystem.hasRocket()) {
             const rocketCapabilities = this.scene.upgradeSystem.getRocketCapabilities();

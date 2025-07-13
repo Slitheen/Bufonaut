@@ -1534,9 +1534,6 @@ export class UISystem {
         if (this.scene.player.y < breachY && !this.cloudBreached) {
             this.cloudBreached = true;
             
-            // Start camera tracking
-            this.scene.startCameraTracking();
-            
             // Hide title when player goes high enough
             this.titleContainer.setVisible(false);
         }
@@ -2215,7 +2212,7 @@ export class UISystem {
         
         // Title
         const title = this.scene.add.text(0, headerY + 25, 'UPGRADE SHOP', {
-            fontSize: '24px',
+            fontSize: '28px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffffff',
             fontWeight: 'bold'
@@ -2234,7 +2231,7 @@ export class UISystem {
         coinsContainer.add(coinIcon);
         
         this.upgradeShopCoinsText = this.scene.add.text(0, 0, `${this.scene.coins}`, {
-            fontSize: '18px',
+            fontSize: '20px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffd700',
             fontWeight: 'bold'
@@ -2260,7 +2257,7 @@ export class UISystem {
         
         // Close button icon
         const closeIcon = this.scene.add.text(0, 0, '×', {
-            fontSize: '24px',
+            fontSize: '28px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffffff',
             fontWeight: 'bold'
@@ -2383,11 +2380,11 @@ export class UISystem {
         }
         
         // Upgrade info
-        const infoContainer = this.scene.add.container(-width/2 + 120, -25);
+        const infoContainer = this.scene.add.container(-width/2 + 100, -25);
         ribbonContainer.add(infoContainer);
         
         const nameText = this.scene.add.text(0, 0, this.getUpgradeName(upgradeKey), {
-            fontSize: '16px',
+            fontSize: '20px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffffff',
             fontWeight: 'bold'
@@ -2396,7 +2393,7 @@ export class UISystem {
         infoContainer.add(nameText);
         
         const levelText = this.scene.add.text(0, 20, `Level ${upgrade.level}/${upgrade.maxLevel}`, {
-            fontSize: '12px',
+            fontSize: '16px',
             fontFamily: 'Arial, sans-serif',
             fill: '#aaaaaa'
         });
@@ -2404,11 +2401,11 @@ export class UISystem {
         infoContainer.add(levelText);
         
         // Stats info - moved down to avoid overlapping footer text
-        const statsContainer = this.scene.add.container(-width/2 + 120, 10);
+        const statsContainer = this.scene.add.container(-width/2 + 100, 10);
         ribbonContainer.add(statsContainer);
         
         const statsText = this.scene.add.text(0, 0, this.getUpgradeStats(upgradeKey), {
-            fontSize: '11px',
+            fontSize: '14px',
             fontFamily: 'Arial, sans-serif',
             fill: '#cccccc'
         });
@@ -2459,7 +2456,7 @@ export class UISystem {
         
         // Button text
         const text = this.scene.add.text(0, -2, buttonText, {
-            fontSize: '12px',
+            fontSize: '16px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffffff',
             fontWeight: 'bold'
@@ -2471,7 +2468,7 @@ export class UISystem {
         if (!isMaxed) {
             const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
             const costText = this.scene.add.text(0, 12, `${upgrade.cost}💰`, {
-                fontSize: '10px',
+                fontSize: '14px',
                 fontFamily: 'Arial, sans-serif',
                 fill: canAfford ? '#ffd700' : '#ff6666'
             });
@@ -2530,7 +2527,7 @@ export class UISystem {
         
         // Help text
         const helpText = this.scene.add.text(0, footerY + 20, 'Tap outside panel to close • Press ESC to close', {
-            fontSize: '11px',
+            fontSize: '13px',
             fontFamily: 'Arial, sans-serif',
             fill: '#aaaaaa'
         });
@@ -2843,7 +2840,7 @@ export class UISystem {
         
         // Button text
         const text = this.scene.add.text(0, -2, buttonText, {
-            fontSize: '12px',
+            fontSize: '16px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffffff',
             fontWeight: 'bold'
@@ -2855,7 +2852,7 @@ export class UISystem {
         if (!isMaxed) {
             const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
             const costText = this.scene.add.text(0, 12, `${upgrade.cost}💰`, {
-                fontSize: '10px',
+                fontSize: '14px',
                 fontFamily: 'Arial, sans-serif',
                 fill: canAfford ? '#ffd700' : '#ff6666'
             });

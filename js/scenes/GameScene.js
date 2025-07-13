@@ -290,8 +290,8 @@ export class GameScene extends Phaser.Scene {
             // Enhanced rotation based on velocity and direction
             this.updatePlayerRotation();
 
-            // Update camera only after cloud breach
-            if (this.uiSystem.cloudBreached) {
+            // Update camera to track player when airborne (but not when landed)
+            if (!this.isLanded) {
                 const targetY = this.player.y - this.cameras.main.height / 2;
                 this.cameras.main.scrollY = Phaser.Math.Linear(this.cameras.main.scrollY, targetY, GAME_CONSTANTS.PERFORMANCE.CAMERA_SMOOTHING);
             }
@@ -457,6 +457,17 @@ export class GameScene extends Phaser.Scene {
         // Stop camera tracking by resetting cloud breach state
         this.uiSystem.cloudBreached = false;
 
+        // IMMEDIATELY reset camera to default position when landing
+        const grassTileHeight = 80;
+        const additionalGrassRows = 4;
+        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
+        const properCameraY = grassBottomEdge - this.cameras.main.height;
+        
+        this.cameras.main.scrollX = 0;
+        this.cameras.main.scrollY = properCameraY;
+        
+        console.log(`Camera immediately reset to default position: scrollX=${this.cameras.main.scrollX}, scrollY=${this.cameras.main.scrollY}`);
+
         console.log('Landing state after:', {
             isAirborne: this.isAirborne,
             isLanded: this.isLanded,
@@ -582,13 +593,8 @@ export class GameScene extends Phaser.Scene {
             }
         });
         
-        // Also animate camera to follow Bufo back
-        const grassTileHeight = 80;
-        const additionalGrassRows = 4;
-        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
-        const properCameraY = grassBottomEdge - this.cameras.main.height;
-        
-        this.cameras.main.pan(this.cameras.main.width / 2, properCameraY + this.cameras.main.height / 2, walkTime, 'Sine.easeInOut');
+        // Camera has already been reset to default position in handleLanding()
+        // No need to animate camera during walk-back
     }
 
     panCameraToLaunchPosition(callback) {
@@ -1212,11 +1218,7 @@ export class GameScene extends Phaser.Scene {
         this.uiSystem.showZoneTransition(zoneName);
     }
 
-    startCameraTracking() {
-        // This method is called when Bufo breaches the clouds
-        // The camera will start tracking the player from this point
-        console.log('Camera tracking started - Bufo has breached the clouds!');
-    }
+
 
     randomizeGrassForNewDay() {
         // Clear existing grass textures to force regeneration
