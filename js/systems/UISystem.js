@@ -2092,7 +2092,7 @@ export class UISystem {
         coinIcon.setOrigin(0.5, 0.5);
         coinsContainer.add(coinIcon);
         
-        this.upgradeShopCoinsText = this.scene.add.text(0, 0, `${this.scene.coins}`, {
+        this.upgradeShopCoinsText = this.scene.add.text(0, 0, `${this.scene.upgradeSystem.getCoins()}`, {
             fontSize: '20px',
             fontFamily: 'Arial, sans-serif',
             fill: '#ffd700',
@@ -2185,7 +2185,7 @@ export class UISystem {
         // Main ribbon background
         const ribbonBg = this.scene.add.graphics();
         const isMaxed = upgrade.level >= upgrade.maxLevel;
-        const canAfford = this.scene.coins >= upgrade.cost;
+        const canAfford = this.scene.upgradeSystem.getCoins() >= upgrade.cost;
         
         // Dynamic colors based on state
         let bgColor = 0x2a2a3e;
@@ -2529,7 +2529,7 @@ export class UISystem {
         
         // Update coins display
         if (this.upgradeShopCoinsText) {
-            this.upgradeShopCoinsText.setText(`${this.scene.coins}`);
+            this.upgradeShopCoinsText.setText(`${this.scene.upgradeSystem.getCoins()}`);
         }
         
         // Update each upgrade ribbon
@@ -2545,7 +2545,7 @@ export class UISystem {
         
         const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
         const isMaxed = upgrade.level >= upgrade.maxLevel;
-        const canAfford = this.scene.coins >= upgrade.cost;
+        const canAfford = this.scene.upgradeSystem.getCoins() >= upgrade.cost;
         
         // Update level text
         elements.levelText.setText(`Level ${upgrade.level}/${upgrade.maxLevel}`);
