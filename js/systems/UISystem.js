@@ -9,6 +9,29 @@ export class UISystem {
         this.fuelGauge = null;
         this.launcherVisualization = null;
         
+        // DPI and resolution compatibility
+        this.devicePixelRatio = window.devicePixelRatio || 1;
+        this.canvasScale = {
+            x: this.scene.scale.width / this.scene.cameras.main.width,
+            y: this.scene.scale.height / this.scene.cameras.main.height
+        };
+        
+        // Log display information for debugging
+        console.log('🖥️ Display Configuration:', {
+            devicePixelRatio: this.devicePixelRatio,
+            windowInnerWidth: window.innerWidth,
+            windowInnerHeight: window.innerHeight,
+            scaleWidth: this.scene.scale.width,
+            scaleHeight: this.scene.scale.height,
+            cameraWidth: this.scene.cameras.main.width,
+            cameraHeight: this.scene.cameras.main.height,
+            canvasScale: this.canvasScale,
+            browserInfo: {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform
+            }
+        });
+        
         // Joystick system for mobile controls
         this.joystick = null;
         this.joystickBase = null;
@@ -33,6 +56,52 @@ export class UISystem {
             balloons: null,
             birds: null,
             clouds: null
+        };
+        
+        // Setup debug hotkey for button alignment
+        this.setupButtonDebugHotkey();
+    }
+
+    /**
+     * Convert pointer coordinates to game coordinates, handling DPI scaling and resolution differences
+     * @param {Phaser.Input.Pointer} pointer - The pointer object
+     * @returns {Object} Corrected coordinates {x, y}
+     */
+    convertPointerToGameCoords(pointer) {
+        // For screen-relative elements (scrollFactor 0), use Phaser's built-in coordinates
+        // but apply simple DPI correction if needed
+        
+        let gameX = pointer.x;
+        let gameY = pointer.y;
+        
+        // Only apply DPI correction for very high DPI displays (2.0+)
+        // For moderately high DPI (1.1-1.9), use Phaser's coordinates directly
+        if (this.devicePixelRatio >= 2.0) {
+            const canvas = this.scene.sys.canvas;
+            const canvasRect = canvas.getBoundingClientRect();
+            
+            const mouseX = pointer.event.clientX - canvasRect.left;
+            const mouseY = pointer.event.clientY - canvasRect.top;
+            
+            const scaleX = this.scene.cameras.main.width / canvasRect.width;
+            const scaleY = this.scene.cameras.main.height / canvasRect.height;
+            
+            gameX = mouseX * scaleX;
+            gameY = mouseY * scaleY;
+        }
+        
+        return {
+            x: gameX,
+            y: gameY,
+            originalX: pointer.x,
+            originalY: pointer.y,
+            usedDPICorrection: this.devicePixelRatio >= 2.0,
+            devicePixelRatio: this.devicePixelRatio,
+            debugInfo: {
+                devicePixelRatio: this.devicePixelRatio,
+                usedCorrection: this.devicePixelRatio >= 2.0,
+                phaserCoords: { x: pointer.x, y: pointer.y }
+            }
         };
     }
 
@@ -548,6 +617,12 @@ export class UISystem {
 
         // Listen for a click or touch anywhere on the game screen
         this.scene.input.on('pointerdown', (pointer) => {
+            // Prevent pulling when upgrade shop is open
+            if (this.upgradeShopContainer) {
+                console.log('Pulling blocked - upgrade shop is open');
+                return;
+            }
+            
             if (!this.scene.isAirborne && !this.scene.isLanded && !this.scene.isPulling) {
                 console.log('Starting pull!');
                 this.scene.isPulling = true;
@@ -565,6 +640,14 @@ export class UISystem {
 
         // Handle mouse movement during pulling
         this.scene.input.on('pointermove', (pointer) => {
+            // Stop pulling if upgrade shop opens mid-pull
+            if (this.upgradeShopContainer && this.scene.isPulling) {
+                this.scene.isPulling = false;
+                this.scene.launchLine.clear();
+                console.log('Pulling interrupted - upgrade shop opened');
+                return;
+            }
+            
             if (this.scene.isPulling && this.scene.originalPlayerPosition) {
                 // Convert pointer coordinates from screen space to world space
                 const worldX = pointer.x + this.scene.cameras.main.scrollX;
@@ -609,6 +692,15 @@ export class UISystem {
         });
 
         this.scene.input.on('pointerup', (pointer) => {
+            // Cancel launch if upgrade shop is open
+            if (this.upgradeShopContainer && this.scene.isPulling) {
+                this.scene.isPulling = false;
+                this.scene.launchLine.clear();
+                this.scene.launchZoneIndicator.clear();
+                console.log('Launch cancelled - upgrade shop is open');
+                return;
+            }
+            
             if (this.scene.isPulling) {
                 console.log('Launching!');
                 this.scene.isPulling = false;
@@ -669,7 +761,7 @@ export class UISystem {
                 this.scene.player.body.setEnable(true); // Re-enable the physics body
                 this.scene.player.body.setGravityY(GAME_CONSTANTS.GRAVITY); // Use proper falling speed
                 this.scene.player.body.setBounce(0.1, 0.1);
-                this.scene.player.body.setFriction(0.1);
+                this.scene.player.body.setFriction(0.0); // No friction during launch
                 
                 // Calculate launch velocity with smoothing
                 const launchVelocityX = pullVector.x * currentLaunchPower;
@@ -692,8 +784,8 @@ export class UISystem {
                     this.ui.flightDistanceText.setText('...');
                     this.ui.airTimeText.setText('...');
                     
-                    // Add friction to help control velocity when airborne
-                    this.scene.player.body.setFriction(0.9);
+                    // Keep friction low during flight to maintain velocity
+                    this.scene.player.body.setFriction(0.0);
                     
                     // Show joystick if rocket is available
                     if (this.scene.upgradeSystem.hasRocket()) {
@@ -713,6 +805,14 @@ export class UISystem {
                         velocityY: launchVelocityY,
                         power: currentLaunchPower,
                         pullDistance: pullDistance
+                    });
+                    
+                    // Debug: Check velocity after a short delay to verify it's maintained
+                    this.scene.time.delayedCall(100, () => {
+                        console.log('Velocity after 100ms:', {
+                            velocityX: this.scene.player.body.velocity.x,
+                            velocityY: this.scene.player.body.velocity.y
+                        });
                     });
                 });
             }
@@ -940,31 +1040,9 @@ export class UISystem {
     }
 
     createCloudTitle() {
-        // Create title container - moved down slightly for more launch space
-        this.titleContainer = this.scene.add.container(this.scene.cameras.main.width / 2, 120);
-        
-        // Create cloud-themed title text
-        const titleText = this.scene.add.text(0, 0, 'Reach for the Sky!', {
-            fontSize: GAME_CONSTANTS.UI_SCALE.TITLE_FONT,
-            fill: UI_THEME.text,
-            fontFamily: 'Arial, sans-serif',
-            fontWeight: 'bold',
-            stroke: UI_THEME.primary,
-            strokeThickness: 3,
-            shadow: {
-                offsetX: 2,
-                offsetY: 2,
-                color: 'rgba(0,0,0,0.5)',
-                blur: 4,
-                fill: true
-            }
-        }).setOrigin(0.5);
-        
-        this.titleContainer.add(titleText);
-        
-        // Set the title container to not scroll with camera initially
-        this.titleContainer.setScrollFactor(0, 0);
-        this.titleContainer.setDepth(2500); // High depth for UI elements
+        // Title container removed - no longer displaying "Reach for the Sky!" text
+        // This provides more clean space for the game interface
+        this.titleContainer = null;
     }
 
     updateLauncherPosition() {
@@ -1279,9 +1357,15 @@ export class UISystem {
     }
 
     showLaunchReadyIndicator() {
+        // Hide any existing indicator first
+        this.hideLaunchReadyIndicators();
+        
         // Create a prominent "Ready to Launch" indicator
         const indicator = this.scene.add.container(this.scene.cameras.main.width / 2, this.scene.cameras.main.height / 2 - 100);
         indicator.setDepth(2500);
+        
+        // Store reference for later hiding
+        this.launchReadyIndicator = indicator;
         
         // Background
         const bg = this.scene.add.graphics();
@@ -1324,6 +1408,9 @@ export class UISystem {
         launchHighlight.strokeCircle(this.scene.player.x, this.scene.player.y, 150);
         launchHighlight.lineStyle(2, 0x7ED321, 0.6);
         launchHighlight.strokeCircle(this.scene.player.x, this.scene.player.y, 120);
+        
+        // Store reference for later hiding
+        this.launchHighlight = launchHighlight;
         
         // Animate the indicator
         indicator.setAlpha(0);
@@ -1401,6 +1488,41 @@ export class UISystem {
             }
         };
         this.scene.input.on('pointerdown', hideOnPull);
+    }
+    
+    hideLaunchReadyIndicators() {
+        // Hide and destroy launch ready indicator
+        if (this.launchReadyIndicator) {
+            this.launchReadyIndicator.setVisible(false);
+            // Optionally destroy it completely
+            this.scene.tweens.add({
+                targets: this.launchReadyIndicator,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => {
+                    if (this.launchReadyIndicator) {
+                        this.launchReadyIndicator.destroy();
+                        this.launchReadyIndicator = null;
+                    }
+                }
+            });
+        }
+        
+        // Hide and destroy launch highlight
+        if (this.launchHighlight) {
+            this.launchHighlight.setVisible(false);
+            this.scene.tweens.add({
+                targets: this.launchHighlight,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => {
+                    if (this.launchHighlight) {
+                        this.launchHighlight.destroy();
+                        this.launchHighlight = null;
+                    }
+                }
+            });
+        }
     }
 
     checkCloudBreach() {
@@ -1749,4 +1871,1833 @@ export class UISystem {
         
         console.log('Grass tiles recreated with new randomization');
     }
-} 
+
+    createUpgradeShopBuilding() {
+        // Position the building to the left of the platform in the grass area
+        const platformX = this.scene.cameras.main.width / 2;
+        
+        // Building dimensions
+        const buildingWidth = 120;
+        const buildingX = platformX - 200 - buildingWidth; // Move left by building width + 200 pixels
+        const buildingY = this.scene.groundLevel + 40; // In the grass area below ground level
+        
+        // Create building container
+        this.upgradeBuilding = this.scene.add.container(buildingX, buildingY);
+        const buildingHeight = 140;
+        const roofHeight = 40;
+        
+        // Create 3D building using isometric-style graphics
+        const building = this.scene.add.graphics();
+        
+        // Main building face (front)
+        building.fillStyle(0x8B4513, 0.9); // Brown brick color
+        building.fillRect(-buildingWidth/2, -buildingHeight, buildingWidth, buildingHeight);
+        building.lineStyle(2, 0x654321, 1); // Dark brown outline
+        building.strokeRect(-buildingWidth/2, -buildingHeight, buildingWidth, buildingHeight);
+        
+        // Right side wall (3D effect)
+        building.fillStyle(0x654321, 0.8); // Darker brown for side
+        building.beginPath();
+        building.moveTo(buildingWidth/2, -buildingHeight);    // Top front right
+        building.lineTo(buildingWidth/2 + 20, -buildingHeight - 15); // Top back right
+        building.lineTo(buildingWidth/2 + 20, -15);           // Bottom back right
+        building.lineTo(buildingWidth/2, 0);                  // Bottom front right
+        building.closePath();
+        building.fillPath();
+        
+        building.lineStyle(2, 0x4A2C17, 1);
+        building.beginPath();
+        building.moveTo(buildingWidth/2, -buildingHeight);
+        building.lineTo(buildingWidth/2 + 20, -buildingHeight - 15);
+        building.lineTo(buildingWidth/2 + 20, -15);
+        building.lineTo(buildingWidth/2, 0);
+        building.closePath();
+        building.strokePath();
+        
+        // Roof (3D effect)
+        building.fillStyle(0xB22222, 0.9); // Red roof
+        building.beginPath();
+        building.moveTo(-buildingWidth/2, -buildingHeight);     // Left front
+        building.lineTo(buildingWidth/2, -buildingHeight);      // Right front
+        building.lineTo(buildingWidth/2 + 20, -buildingHeight - 15); // Right back
+        building.lineTo(-buildingWidth/2 + 20, -buildingHeight - 15); // Left back
+        building.closePath();
+        building.fillPath();
+        
+        building.lineStyle(2, 0x8B0000, 1); // Dark red outline
+        building.beginPath();
+        building.moveTo(-buildingWidth/2, -buildingHeight);
+        building.lineTo(buildingWidth/2, -buildingHeight);
+        building.lineTo(buildingWidth/2 + 20, -buildingHeight - 15);
+        building.lineTo(-buildingWidth/2 + 20, -buildingHeight - 15);
+        building.closePath();
+        building.strokePath();
+        
+        // Add building details
+        // Windows
+        building.fillStyle(0x87CEEB, 0.8); // Light blue windows
+        building.fillRect(-30, -buildingHeight + 20, 20, 25);
+        building.fillRect(10, -buildingHeight + 20, 20, 25);
+        building.fillRect(-30, -buildingHeight + 60, 20, 25);
+        building.fillRect(10, -buildingHeight + 60, 20, 25);
+        building.lineStyle(2, 0x4682B4, 1); // Steel blue window frames
+        building.strokeRect(-30, -buildingHeight + 20, 20, 25);
+        building.strokeRect(10, -buildingHeight + 20, 20, 25);
+        building.strokeRect(-30, -buildingHeight + 60, 20, 25);
+        building.strokeRect(10, -buildingHeight + 60, 20, 25);
+        
+        // Door
+        building.fillStyle(0x8B4513, 0.9); // Brown door
+        building.fillRect(-15, -30, 30, 35);
+        building.lineStyle(2, 0x654321, 1);
+        building.strokeRect(-15, -30, 30, 35);
+        
+        // Door handle
+        building.fillStyle(0xFFD700, 1); // Gold handle
+        building.fillCircle(8, -12, 3);
+        
+        // Sign above door
+        building.fillStyle(0x2F4F4F, 0.9); // Dark slate gray
+        building.fillRect(-25, -50, 50, 15);
+        building.lineStyle(1, 0x000000, 1);
+        building.strokeRect(-25, -50, 50, 15);
+        
+        // Sign text
+        const signText = this.scene.add.text(0, -42, 'UPGRADES', {
+            fontSize: '12px',
+            fill: '#FFD700',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold'
+        }).setOrigin(0.5, 0.5);
+        
+        // Add upgrade icon above building
+        const upgradeIcon = this.scene.add.graphics();
+        upgradeIcon.fillStyle(0xFFD700, 1);
+        
+        // Create a star shape manually
+        const starX = 0;
+        const starY = -buildingHeight - 25;
+        const outerRadius = 15;
+        const innerRadius = 8;
+        const points = 5;
+        
+        upgradeIcon.beginPath();
+        for (let i = 0; i < points * 2; i++) {
+            const angle = (i * Math.PI) / points;
+            const radius = i % 2 === 0 ? outerRadius : innerRadius;
+            const x = starX + Math.cos(angle - Math.PI / 2) * radius;
+            const y = starY + Math.sin(angle - Math.PI / 2) * radius;
+            
+            if (i === 0) {
+                upgradeIcon.moveTo(x, y);
+            } else {
+                upgradeIcon.lineTo(x, y);
+            }
+        }
+        upgradeIcon.closePath();
+        upgradeIcon.fillPath();
+        
+        upgradeIcon.lineStyle(2, 0xFF8C00, 1);
+        upgradeIcon.beginPath();
+        for (let i = 0; i < points * 2; i++) {
+            const angle = (i * Math.PI) / points;
+            const radius = i % 2 === 0 ? outerRadius : innerRadius;
+            const x = starX + Math.cos(angle - Math.PI / 2) * radius;
+            const y = starY + Math.sin(angle - Math.PI / 2) * radius;
+            
+            if (i === 0) {
+                upgradeIcon.moveTo(x, y);
+            } else {
+                upgradeIcon.lineTo(x, y);
+            }
+        }
+        upgradeIcon.closePath();
+        upgradeIcon.strokePath();
+        
+        // Add all elements to building container
+        this.upgradeBuilding.add([building, signText, upgradeIcon]);
+        
+        // Set depth to be above grass but below player
+        this.upgradeBuilding.setDepth(250);
+        
+        // Make building interactive
+        const interactiveArea = this.scene.add.rectangle(0, -buildingHeight/2, buildingWidth + 40, buildingHeight + 20, 0x000000, 0);
+        interactiveArea.setInteractive({ useHandCursor: true });
+        this.upgradeBuilding.add(interactiveArea);
+        
+        // Add click handler
+        interactiveArea.on('pointerdown', () => {
+            this.openUpgradeShop();
+        });
+        
+        // Add hover effects
+        interactiveArea.on('pointerover', () => {
+            this.upgradeBuilding.setScale(1.05);
+            // Add glow effect
+            this.upgradeBuilding.getAll().forEach(child => {
+                if (child.setTint) {
+                    child.setTint(0xFFFFAA);
+                }
+            });
+        });
+        
+        interactiveArea.on('pointerout', () => {
+            this.upgradeBuilding.setScale(1);
+            // Remove glow effect
+            this.upgradeBuilding.getAll().forEach(child => {
+                if (child.clearTint) {
+                    child.clearTint();
+                }
+            });
+        });
+        
+        // Add subtle animation
+        this.scene.tweens.add({
+            targets: this.upgradeBuilding,
+            y: buildingY - 3,
+            duration: 3000,
+            ease: 'Sine.easeInOut',
+            yoyo: true,
+            repeat: -1
+        });
+        
+        // Add floating upgrade indicator
+        this.createUpgradeIndicator();
+        
+        // Update indicator based on initial coin state
+        this.updateUpgradeBuildingIndicator();
+    }
+
+    createUpgradeIndicator() {
+        // Create floating indicator above building
+        const indicatorX = this.upgradeBuilding.x;
+        const indicatorY = this.upgradeBuilding.y - 180;
+        
+        this.upgradeIndicator = this.scene.add.container(indicatorX, indicatorY);
+        
+        // Background circle
+        const bg = this.scene.add.graphics();
+        bg.fillStyle(0x4A90E2, 0.8);
+        bg.fillCircle(0, 0, 15);
+        bg.lineStyle(2, 0xFFFFFF, 0.9);
+        bg.strokeCircle(0, 0, 15);
+        
+        // Upgrade arrow
+        const arrow = this.scene.add.graphics();
+        arrow.fillStyle(0xFFFFFF, 1);
+        arrow.fillTriangle(-6, 4, 6, 4, 0, -6);
+        
+        this.upgradeIndicator.add([bg, arrow]);
+        this.upgradeIndicator.setDepth(300);
+        
+        // Floating animation
+        this.scene.tweens.add({
+            targets: this.upgradeIndicator,
+            y: indicatorY - 10,
+            duration: 1500,
+            ease: 'Sine.easeInOut',
+            yoyo: true,
+            repeat: -1
+        });
+        
+        // Pulsing effect
+        this.scene.tweens.add({
+            targets: this.upgradeIndicator,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            duration: 1000,
+            ease: 'Sine.easeInOut',
+            yoyo: true,
+            repeat: -1
+        });
+    }
+
+    openUpgradeShop() {
+        // Create comprehensive upgrade shop UI
+        this.createUpgradeShopUI();
+    }
+
+    createUpgradeShopUI() {
+        // Disable all game inputs when upgrade shop is open
+        this.disableGameInteractions();
+        
+        // Initialize upgrade elements storage
+        this.upgradeShopElements = {};
+        this.upgradeButtons = [];
+        
+        // Create main overlay container
+        this.upgradeShopContainer = this.scene.add.container(0, 0);
+        this.upgradeShopContainer.setDepth(2000);
+        
+        // Create backdrop/overlay
+        const backdrop = this.scene.add.rectangle(0, 0, this.scene.game.config.width, this.scene.game.config.height, 0x000000, 0.6);
+        backdrop.setOrigin(0, 0);
+        backdrop.setInteractive();
+        backdrop.on('pointerdown', (pointer) => {
+            // Only close if click is outside the panel area
+            const clickX = pointer.x;
+            const clickY = pointer.y;
+            const panelLeft = panelX - panelWidth / 2;
+            const panelRight = panelX + panelWidth / 2;
+            const panelTop = panelY - panelHeight + 20;
+            const panelBottom = panelY + 20;
+            
+            // Check if click is outside the panel bounds
+            if (clickX < panelLeft || clickX > panelRight || clickY < panelTop || clickY > panelBottom) {
+                this.closeUpgradeShop();
+            }
+        });
+        this.upgradeShopContainer.add(backdrop);
+        
+        // Create main panel dimensions
+        const panelWidth = Math.min(450, this.scene.game.config.width - 40);
+        const panelHeight = Math.min(600, this.scene.game.config.height - 100);
+        const panelX = this.scene.game.config.width / 2;
+        const panelY = this.scene.game.config.height; // Start below screen
+        
+        // Create main panel
+        this.upgradePanel = this.scene.add.container(panelX, panelY);
+        this.upgradeShopContainer.add(this.upgradePanel);
+        
+        // Panel background with modern rounded corners
+        const panelBg = this.scene.add.graphics();
+        panelBg.fillStyle(0x1a1a2e, 1);
+        panelBg.fillRoundedRect(-panelWidth/2, -panelHeight, panelWidth, panelHeight, 20);
+        panelBg.lineStyle(2, 0x16213e, 1);
+        panelBg.strokeRoundedRect(-panelWidth/2, -panelHeight, panelWidth, panelHeight, 20);
+        this.upgradePanel.add(panelBg);
+        
+        // Add subtle glow effect
+        const glowEffect = this.scene.add.graphics();
+        glowEffect.fillStyle(0x0f3460, 0.3);
+        glowEffect.fillRoundedRect(-panelWidth/2 - 4, -panelHeight - 4, panelWidth + 8, panelHeight + 8, 24);
+        this.upgradePanel.add(glowEffect);
+        this.upgradePanel.sendToBack(glowEffect);
+        
+        // Header section
+        this.createModernHeader(panelWidth, panelHeight);
+        
+        // Upgrade ribbons section
+        this.createUpgradeRibbons(panelWidth, panelHeight);
+        
+        // Footer section
+        this.createModernFooter(panelWidth, panelHeight);
+        
+        // Slide up animation
+        this.scene.tweens.add({
+            targets: this.upgradePanel,
+            y: panelY - panelHeight + 20,
+            duration: 400,
+            ease: 'Cubic.easeOut',
+            onComplete: () => {
+                this.setupKeyboardNavigation();
+                this.announceToScreenReader("Upgrade shop opened");
+            }
+        });
+        
+        // Store panel dimensions for responsive updates
+        this.panelWidth = panelWidth;
+        this.panelHeight = panelHeight;
+        
+        // Set up responsive handling
+        this.setupResponsiveHandling();
+    }
+    
+    createModernHeader(panelWidth, panelHeight) {
+        const headerHeight = 80;
+        const headerY = -panelHeight + 20;
+        
+        // Header background
+        const headerBg = this.scene.add.graphics();
+        headerBg.fillStyle(0x0f3460, 1);
+        headerBg.fillRoundedRect(-panelWidth/2, headerY, panelWidth, headerHeight, {tl: 20, tr: 20, bl: 0, br: 0});
+        this.upgradePanel.add(headerBg);
+        
+        // Title
+        const title = this.scene.add.text(0, headerY + 25, 'UPGRADE SHOP', {
+            fontSize: '24px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#ffffff',
+            fontWeight: 'bold'
+        });
+        title.setOrigin(0.5, 0);
+        this.upgradePanel.add(title);
+        
+        // Coins display
+        const coinsContainer = this.scene.add.container(0, headerY + 55);
+        this.upgradePanel.add(coinsContainer);
+        
+        const coinIcon = this.scene.add.text(-30, 0, '💰', {
+            fontSize: '18px'
+        });
+        coinIcon.setOrigin(0.5, 0.5);
+        coinsContainer.add(coinIcon);
+        
+        this.upgradeShopCoinsText = this.scene.add.text(0, 0, `${this.scene.coins}`, {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#ffd700',
+            fontWeight: 'bold'
+        });
+        this.upgradeShopCoinsText.setOrigin(0, 0.5);
+        coinsContainer.add(this.upgradeShopCoinsText);
+        
+        // Close button
+        this.createModernCloseButton(panelWidth, headerY);
+    }
+    
+    createModernCloseButton(panelWidth, headerY) {
+        const closeButton = this.scene.add.container(panelWidth/2 - 40, headerY + 40);
+        this.upgradePanel.add(closeButton);
+        
+        // Close button background
+        const closeBg = this.scene.add.graphics();
+        closeBg.fillStyle(0x333366, 1);
+        closeBg.fillCircle(0, 0, 20);
+        closeBg.lineStyle(2, 0x666699, 1);
+        closeBg.strokeCircle(0, 0, 20);
+        closeButton.add(closeBg);
+        
+        // Close button icon
+        const closeIcon = this.scene.add.text(0, 0, '×', {
+            fontSize: '24px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#ffffff',
+            fontWeight: 'bold'
+        });
+        closeIcon.setOrigin(0.5, 0.5);
+        closeButton.add(closeIcon);
+        
+        // Interactive area
+        const closeArea = this.scene.add.circle(0, 0, 25, 0x000000, 0);
+        closeArea.setInteractive({ useHandCursor: true });
+        closeButton.add(closeArea);
+        
+        // Button interactions
+        closeArea.on('pointerdown', () => {
+            this.closeUpgradeShop();
+        });
+        
+        closeArea.on('pointerover', () => {
+            closeBg.clear();
+            closeBg.fillStyle(0x444477, 1);
+            closeBg.fillCircle(0, 0, 20);
+            closeBg.lineStyle(2, 0x7777aa, 1);
+            closeBg.strokeCircle(0, 0, 20);
+        });
+        
+        closeArea.on('pointerout', () => {
+            closeBg.clear();
+            closeBg.fillStyle(0x333366, 1);
+            closeBg.fillCircle(0, 0, 20);
+            closeBg.lineStyle(2, 0x666699, 1);
+            closeBg.strokeCircle(0, 0, 20);
+        });
+        
+        // Store for keyboard navigation
+        this.closeButton = closeArea;
+    }
+    
+    createUpgradeRibbons(panelWidth, panelHeight) {
+        const ribbonStartY = -panelHeight + 150;
+        const ribbonHeight = 90;
+        const ribbonSpacing = 10;
+        
+        // Scrollable content area
+        this.ribbonContainer = this.scene.add.container(0, 0);
+        this.upgradePanel.add(this.ribbonContainer);
+        
+        // Create ribbons for each upgrade
+        const upgrades = ['string', 'frame', 'spaceShip', 'rocket'];
+        upgrades.forEach((key, index) => {
+            const ribbonY = ribbonStartY + (index * (ribbonHeight + ribbonSpacing));
+            this.createUpgradeRibbon(key, ribbonY, panelWidth - 40, ribbonHeight);
+        });
+        
+        // Add scroll indicators if needed
+        this.setupScrollIndicators(panelWidth, panelHeight);
+    }
+    
+    createUpgradeRibbon(upgradeKey, y, width, height) {
+        const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+        const ribbonContainer = this.scene.add.container(0, y);
+        this.ribbonContainer.add(ribbonContainer);
+        
+        // Main ribbon background
+        const ribbonBg = this.scene.add.graphics();
+        const isMaxed = upgrade.level >= upgrade.maxLevel;
+        const canAfford = this.scene.coins >= upgrade.cost;
+        
+        // Dynamic colors based on state
+        let bgColor = 0x2a2a3e;
+        let borderColor = 0x3a3a5e;
+        
+        if (isMaxed) {
+            bgColor = 0x1a3a1a;
+            borderColor = 0x2a5a2a;
+        } else if (canAfford) {
+            bgColor = 0x3a2a1a;
+            borderColor = 0x5a4a2a;
+        }
+        
+        ribbonBg.fillStyle(bgColor, 1);
+        ribbonBg.fillRoundedRect(-width/2, -height/2, width, height, 12);
+        ribbonBg.lineStyle(2, borderColor, 1);
+        ribbonBg.strokeRoundedRect(-width/2, -height/2, width, height, 12);
+        ribbonContainer.add(ribbonBg);
+        
+        // Progress ribbon (shows current level)
+        const progressWidth = (upgrade.level / upgrade.maxLevel) * (width - 20);
+        if (progressWidth > 0) {
+            const progressBg = this.scene.add.graphics();
+            progressBg.fillStyle(0x4a6a4a, 0.6);
+            progressBg.fillRoundedRect(-width/2 + 10, -height/2 + 10, progressWidth, height - 20, 8);
+            ribbonContainer.add(progressBg);
+        }
+        
+        // Upgrade icon
+        const iconContainer = this.scene.add.container(-width/2 + 50, 0);
+        ribbonContainer.add(iconContainer);
+        
+        const iconBg = this.scene.add.graphics();
+        iconBg.fillStyle(0x1a1a2e, 1);
+        iconBg.fillCircle(0, 0, 25);
+        iconBg.lineStyle(2, 0x4a4a6e, 1);
+        iconBg.strokeCircle(0, 0, 25);
+        iconContainer.add(iconBg);
+        
+        // Load upgrade icon if available
+        if (this.scene.textures.exists(`upgrade_${upgradeKey}`)) {
+            const icon = this.scene.add.image(0, 0, `upgrade_${upgradeKey}`);
+            // Set explicit size to fit within the 50px diameter circle (25px radius)
+            icon.setDisplaySize(32, 32);
+            iconContainer.add(icon);
+        } else {
+            // Fallback text icon
+            const iconText = this.scene.add.text(0, 0, this.getUpgradeIcon(upgradeKey), {
+                fontSize: '20px',
+                fill: '#ffffff'
+            });
+            iconText.setOrigin(0.5, 0.5);
+            iconContainer.add(iconText);
+        }
+        
+        // Upgrade info
+        const infoContainer = this.scene.add.container(-width/2 + 120, -25);
+        ribbonContainer.add(infoContainer);
+        
+        const nameText = this.scene.add.text(0, 0, this.getUpgradeName(upgradeKey), {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#ffffff',
+            fontWeight: 'bold'
+        });
+        nameText.setOrigin(0, 0);
+        infoContainer.add(nameText);
+        
+        const levelText = this.scene.add.text(0, 20, `Level ${upgrade.level}/${upgrade.maxLevel}`, {
+            fontSize: '12px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#aaaaaa'
+        });
+        levelText.setOrigin(0, 0);
+        infoContainer.add(levelText);
+        
+        // Stats info - moved down to avoid overlapping footer text
+        const statsContainer = this.scene.add.container(-width/2 + 120, 10);
+        ribbonContainer.add(statsContainer);
+        
+        const statsText = this.scene.add.text(0, 0, this.getUpgradeStats(upgradeKey), {
+            fontSize: '11px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#cccccc'
+        });
+        statsText.setOrigin(0, 0);
+        statsContainer.add(statsText);
+        
+        // Buy button
+        this.createRibbonButton(ribbonContainer, upgradeKey, width, height, isMaxed, canAfford);
+        
+        // Store elements for updates
+        this.upgradeShopElements[upgradeKey] = {
+            container: ribbonContainer,
+            background: ribbonBg,
+            levelText,
+            statsText,
+            infoContainer,
+            statsContainer
+        };
+    }
+    
+    createRibbonButton(ribbonContainer, upgradeKey, width, height, isMaxed, canAfford) {
+        const buttonWidth = 80;
+        const buttonHeight = 36;
+        const buttonX = width/2 - buttonWidth/2 - 20;
+        
+        const buttonContainer = this.scene.add.container(buttonX, 0);
+        ribbonContainer.add(buttonContainer);
+        
+        // Button background
+        const buttonBg = this.scene.add.graphics();
+        let buttonColor = 0x333366;
+        let buttonText = 'BUY';
+        
+        if (isMaxed) {
+            buttonColor = 0x2a5a2a;
+            buttonText = 'MAX';
+        } else if (canAfford) {
+            buttonColor = 0x4a6a2a;
+        } else {
+            buttonColor = 0x5a2a2a;
+        }
+        
+        buttonBg.fillStyle(buttonColor, 1);
+        buttonBg.fillRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+        buttonBg.lineStyle(2, this.lightenColor(buttonColor), 1);
+        buttonBg.strokeRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+        buttonContainer.add(buttonBg);
+        
+        // Button text
+        const text = this.scene.add.text(0, -2, buttonText, {
+            fontSize: '12px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#ffffff',
+            fontWeight: 'bold'
+        });
+        text.setOrigin(0.5, 0.5);
+        buttonContainer.add(text);
+        
+        // Cost text
+        if (!isMaxed) {
+            const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+            const costText = this.scene.add.text(0, 12, `${upgrade.cost}💰`, {
+                fontSize: '10px',
+                fontFamily: 'Arial, sans-serif',
+                fill: canAfford ? '#ffd700' : '#ff6666'
+            });
+            costText.setOrigin(0.5, 0.5);
+            buttonContainer.add(costText);
+        }
+        
+        // Interactive area
+        const buttonArea = this.scene.add.rectangle(0, 0, buttonWidth + 10, buttonHeight + 10, 0x000000, 0);
+        buttonArea.setInteractive({ useHandCursor: !isMaxed });
+        buttonContainer.add(buttonArea);
+        
+        // Button interactions
+        if (!isMaxed) {
+            buttonArea.on('pointerdown', () => {
+                this.playButtonSound();
+                this.buyUpgrade(upgradeKey);
+            });
+            
+            buttonArea.on('pointerover', () => {
+                buttonBg.clear();
+                buttonBg.fillStyle(this.lightenColor(buttonColor), 1);
+                buttonBg.fillRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+                buttonBg.lineStyle(2, this.lightenColor(buttonColor, 0.4), 1);
+                buttonBg.strokeRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+            });
+            
+            buttonArea.on('pointerout', () => {
+                buttonBg.clear();
+                buttonBg.fillStyle(buttonColor, 1);
+                buttonBg.fillRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+                buttonBg.lineStyle(2, this.lightenColor(buttonColor), 1);
+                buttonBg.strokeRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+            });
+        }
+        
+        // Store for keyboard navigation
+        if (!isMaxed) {
+            if (!this.upgradeButtons) this.upgradeButtons = [];
+            this.upgradeButtons.push({
+                area: buttonArea,
+                upgradeKey: upgradeKey,
+                container: buttonContainer
+            });
+        }
+    }
+    
+    createModernFooter(panelWidth, panelHeight) {
+        const footerY = -10;
+        
+        // Footer background
+        const footerBg = this.scene.add.graphics();
+        footerBg.fillStyle(0x0f3460, 0.8);
+        footerBg.fillRoundedRect(-panelWidth/2, footerY, panelWidth, 40, {tl: 0, tr: 0, bl: 20, br: 20});
+        this.upgradePanel.add(footerBg);
+        
+        // Help text
+        const helpText = this.scene.add.text(0, footerY + 20, 'Tap outside panel to close • Press ESC to close', {
+            fontSize: '11px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#aaaaaa'
+        });
+        helpText.setOrigin(0.5, 0.5);
+        this.upgradePanel.add(helpText);
+    }
+    
+    // Helper methods
+    getUpgradeIcon(upgradeKey) {
+        const icons = {
+            string: '🎯',
+            frame: '🛡️',
+            spaceShip: '🚀',
+            rocket: '⚡'
+        };
+        return icons[upgradeKey] || '⚙️';
+    }
+    
+    getUpgradeName(upgradeKey) {
+        const names = {
+            string: 'STRING',
+            frame: 'FRAME',
+            spaceShip: 'SPACE SHIP',
+            rocket: 'ROCKET'
+        };
+        return names[upgradeKey] || upgradeKey.toUpperCase();
+    }
+    
+    getUpgradeStats(upgradeKey) {
+        const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+        switch (upgradeKey) {
+            case 'string':
+                return `Length: ${upgrade.length}m`;
+            case 'frame':
+                return `Strength: ${upgrade.strength}`;
+            case 'spaceShip':
+                return `Speed: ${upgrade.speed}`;
+            case 'rocket':
+                const info = this.getRocketUpgradeInfo(upgrade);
+                return `Thrust: ${info.thrust} | Fuel: ${info.fuel}`;
+            default:
+                return 'Level ' + upgrade.level;
+        }
+    }
+    
+    lightenColor(color, amount = 0.2) {
+        const r = (color >> 16) & 255;
+        const g = (color >> 8) & 255;
+        const b = color & 255;
+        
+        const newR = Math.min(255, Math.floor(r + (255 - r) * amount));
+        const newG = Math.min(255, Math.floor(g + (255 - g) * amount));
+        const newB = Math.min(255, Math.floor(b + (255 - b) * amount));
+        
+        return (newR << 16) | (newG << 8) | newB;
+    }
+    
+    playButtonSound() {
+        // Add sound effect if available
+        if (this.scene.sound && this.scene.sound.get('buttonClick')) {
+            this.scene.sound.play('buttonClick', { volume: 0.3 });
+        }
+    }
+    
+    announceToScreenReader(message) {
+        // Create invisible element for screen reader announcement
+        if (!this.screenReaderAnnouncer) {
+            this.screenReaderAnnouncer = this.scene.add.text(-1000, -1000, '', {
+                fontSize: '1px',
+                fill: '#000000'
+            });
+        }
+        this.screenReaderAnnouncer.setText(message);
+    }
+    
+    setupKeyboardNavigation() {
+        // Add keyboard navigation support
+        if (this.scene.input.keyboard) {
+            this.escKey = this.scene.input.keyboard.addKey('ESC');
+            this.escKey.on('down', () => {
+                this.closeUpgradeShop();
+            });
+            
+            // Tab navigation through buttons
+            this.tabKey = this.scene.input.keyboard.addKey('TAB');
+            this.enterKey = this.scene.input.keyboard.addKey('ENTER');
+            this.spaceKey = this.scene.input.keyboard.addKey('SPACE');
+            
+            let currentButtonIndex = 0;
+            this.tabKey.on('down', () => {
+                if (this.upgradeButtons && this.upgradeButtons.length > 0) {
+                    currentButtonIndex = (currentButtonIndex + 1) % this.upgradeButtons.length;
+                    this.highlightButton(currentButtonIndex);
+                }
+            });
+            
+            this.enterKey.on('down', () => {
+                if (this.upgradeButtons && this.upgradeButtons[currentButtonIndex]) {
+                    this.buyUpgrade(this.upgradeButtons[currentButtonIndex].upgradeKey);
+                }
+            });
+            
+            this.spaceKey.on('down', () => {
+                if (this.upgradeButtons && this.upgradeButtons[currentButtonIndex]) {
+                    this.buyUpgrade(this.upgradeButtons[currentButtonIndex].upgradeKey);
+                }
+            });
+        }
+    }
+    
+    highlightButton(index) {
+        // Remove previous highlights
+        if (this.upgradeButtons) {
+            this.upgradeButtons.forEach(button => {
+                button.container.setScale(1);
+            });
+            
+            // Highlight current button
+            if (this.upgradeButtons[index]) {
+                this.upgradeButtons[index].container.setScale(1.05);
+            }
+        }
+    }
+    
+    setupScrollIndicators(panelWidth, panelHeight) {
+        // Add scroll indicators if content overflows
+        // This would be implemented based on content height
+    }
+    
+    setupResponsiveHandling() {
+        // Handle responsive updates
+        // This would listen for resize events and update layout accordingly
+    }
+    
+    updateUpgradeShop() {
+        if (!this.upgradeShopContainer) return;
+        
+        // Update coins display
+        if (this.upgradeShopCoinsText) {
+            this.upgradeShopCoinsText.setText(`${this.scene.coins}`);
+        }
+        
+        // Update each upgrade ribbon
+        const upgrades = ['string', 'frame', 'spaceShip', 'rocket'];
+        upgrades.forEach(key => {
+            this.updateUpgradeRibbon(key);
+        });
+    }
+    
+    updateUpgradeRibbon(upgradeKey) {
+        const elements = this.upgradeShopElements[upgradeKey];
+        if (!elements) return;
+        
+        const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+        const isMaxed = upgrade.level >= upgrade.maxLevel;
+        const canAfford = this.scene.coins >= upgrade.cost;
+        
+        // Update level text
+        elements.levelText.setText(`Level ${upgrade.level}/${upgrade.maxLevel}`);
+        
+        // Update stats text
+        elements.statsText.setText(this.getUpgradeStats(upgradeKey));
+        
+        // Update background color
+        let bgColor = 0x2a2a3e;
+        let borderColor = 0x3a3a5e;
+        
+        if (isMaxed) {
+            bgColor = 0x1a3a1a;
+            borderColor = 0x2a5a2a;
+        } else if (canAfford) {
+            bgColor = 0x3a2a1a;
+            borderColor = 0x5a4a2a;
+        }
+        
+        elements.background.clear();
+        elements.background.fillStyle(bgColor, 1);
+        elements.background.fillRoundedRect(-this.panelWidth/2 + 20, -45, this.panelWidth - 40, 90, 12);
+        elements.background.lineStyle(2, borderColor, 1);
+        elements.background.strokeRoundedRect(-this.panelWidth/2 + 20, -45, this.panelWidth - 40, 90, 12);
+        
+        // Update progress ribbon
+        this.updateProgressRibbon(elements.container, upgrade, this.panelWidth - 40, 90);
+        
+        // Recreate the button with updated state
+        this.recreateRibbonButton(elements.container, upgradeKey, this.panelWidth - 40, 90, isMaxed, canAfford);
+    }
+    
+    updateProgressRibbon(ribbonContainer, upgrade, width, height) {
+        // Find existing progress bar
+        const existingProgress = ribbonContainer.list.find(child => child.progressBar === true);
+        const newProgressWidth = (upgrade.level / upgrade.maxLevel) * (width - 20);
+        
+        if (existingProgress) {
+            // Animate existing progress bar
+            if (newProgressWidth > 0) {
+                // Create temporary graphics for animation
+                const tempProgress = this.scene.add.graphics();
+                tempProgress.fillStyle(0x4a6a4a, 0.6);
+                tempProgress.fillRoundedRect(-width/2 + 10, -height/2 + 10, 0, height - 20, 8);
+                tempProgress.progressBar = true;
+                ribbonContainer.add(tempProgress);
+                
+                // Remove old progress bar
+                existingProgress.destroy();
+                
+                // Animate new progress bar
+                this.scene.tweens.add({
+                    targets: { width: 0 },
+                    width: newProgressWidth,
+                    duration: 400,
+                    ease: 'Cubic.easeOut',
+                    onUpdate: (tween) => {
+                        const currentWidth = tween.getValue();
+                        tempProgress.clear();
+                        tempProgress.fillStyle(0x4a6a4a, 0.6);
+                        tempProgress.fillRoundedRect(-width/2 + 10, -height/2 + 10, currentWidth, height - 20, 8);
+                        
+                        // Add pulsing effect during animation
+                        const pulse = Math.sin(tween.progress * Math.PI * 3) * 0.1 + 0.6;
+                        tempProgress.fillStyle(0x4a6a4a, pulse);
+                        tempProgress.fillRoundedRect(-width/2 + 10, -height/2 + 10, currentWidth, height - 20, 8);
+                    },
+                    onComplete: () => {
+                        // Final render with normal alpha
+                        tempProgress.clear();
+                        tempProgress.fillStyle(0x4a6a4a, 0.6);
+                        tempProgress.fillRoundedRect(-width/2 + 10, -height/2 + 10, newProgressWidth, height - 20, 8);
+                        
+                        // Add completion flash
+                        this.scene.tweens.add({
+                            targets: tempProgress,
+                            alpha: 0.3,
+                            duration: 100,
+                            yoyo: true,
+                            repeat: 1,
+                            ease: 'Cubic.easeInOut'
+                        });
+                    }
+                });
+            } else {
+                // Remove progress bar if no progress
+                existingProgress.destroy();
+            }
+        } else {
+            // Create new progress bar with animation
+            if (newProgressWidth > 0) {
+                const progressBg = this.scene.add.graphics();
+                progressBg.fillStyle(0x4a6a4a, 0.6);
+                progressBg.fillRoundedRect(-width/2 + 10, -height/2 + 10, 0, height - 20, 8);
+                progressBg.progressBar = true;
+                ribbonContainer.add(progressBg);
+                
+                // Animate to full width
+                this.scene.tweens.add({
+                    targets: { width: 0 },
+                    width: newProgressWidth,
+                    duration: 500,
+                    ease: 'Cubic.easeOut',
+                    onUpdate: (tween) => {
+                        const currentWidth = tween.getValue();
+                        progressBg.clear();
+                        progressBg.fillStyle(0x4a6a4a, 0.6);
+                        progressBg.fillRoundedRect(-width/2 + 10, -height/2 + 10, currentWidth, height - 20, 8);
+                    }
+                });
+            }
+        }
+    }
+    
+    recreateRibbonButton(ribbonContainer, upgradeKey, width, height, isMaxed, canAfford) {
+        // Remove existing button
+        const existingButton = ribbonContainer.list.find(child => child.ribbonButton === true);
+        if (existingButton) {
+            // Remove from upgrade buttons array
+            if (this.upgradeButtons) {
+                this.upgradeButtons = this.upgradeButtons.filter(btn => btn.upgradeKey !== upgradeKey);
+            }
+            existingButton.destroy();
+        }
+        
+        // Create new button
+        const buttonWidth = 80;
+        const buttonHeight = 36;
+        const buttonX = width/2 - buttonWidth/2 - 20;
+        
+        const buttonContainer = this.scene.add.container(buttonX, 0);
+        buttonContainer.ribbonButton = true; // Mark for identification
+        ribbonContainer.add(buttonContainer);
+        
+        // Button background
+        const buttonBg = this.scene.add.graphics();
+        let buttonColor = 0x333366;
+        let buttonText = 'BUY';
+        
+        if (isMaxed) {
+            buttonColor = 0x2a5a2a;
+            buttonText = 'MAX';
+        } else if (canAfford) {
+            buttonColor = 0x4a6a2a;
+        } else {
+            buttonColor = 0x5a2a2a;
+        }
+        
+        buttonBg.fillStyle(buttonColor, 1);
+        buttonBg.fillRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+        buttonBg.lineStyle(2, this.lightenColor(buttonColor), 1);
+        buttonBg.strokeRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+        buttonContainer.add(buttonBg);
+        
+        // Button text
+        const text = this.scene.add.text(0, -2, buttonText, {
+            fontSize: '12px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#ffffff',
+            fontWeight: 'bold'
+        });
+        text.setOrigin(0.5, 0.5);
+        buttonContainer.add(text);
+        
+        // Cost text
+        if (!isMaxed) {
+            const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+            const costText = this.scene.add.text(0, 12, `${upgrade.cost}💰`, {
+                fontSize: '10px',
+                fontFamily: 'Arial, sans-serif',
+                fill: canAfford ? '#ffd700' : '#ff6666'
+            });
+            costText.setOrigin(0.5, 0.5);
+            buttonContainer.add(costText);
+        }
+        
+        // Interactive area
+        const buttonArea = this.scene.add.rectangle(0, 0, buttonWidth + 10, buttonHeight + 10, 0x000000, 0);
+        buttonArea.setInteractive({ useHandCursor: !isMaxed });
+        buttonContainer.add(buttonArea);
+        
+        // Button interactions
+        if (!isMaxed) {
+            buttonArea.on('pointerdown', () => {
+                this.playButtonSound();
+                this.buyUpgrade(upgradeKey);
+            });
+            
+            buttonArea.on('pointerover', () => {
+                buttonBg.clear();
+                buttonBg.fillStyle(this.lightenColor(buttonColor), 1);
+                buttonBg.fillRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+                buttonBg.lineStyle(2, this.lightenColor(buttonColor, 0.4), 1);
+                buttonBg.strokeRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+                
+                // Add smooth scale animation
+                this.scene.tweens.add({
+                    targets: buttonContainer,
+                    scaleX: 1.02,
+                    scaleY: 1.02,
+                    duration: 100,
+                    ease: 'Cubic.easeOut'
+                });
+            });
+            
+            buttonArea.on('pointerout', () => {
+                buttonBg.clear();
+                buttonBg.fillStyle(buttonColor, 1);
+                buttonBg.fillRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+                buttonBg.lineStyle(2, this.lightenColor(buttonColor), 1);
+                buttonBg.strokeRoundedRect(-buttonWidth/2, -buttonHeight/2, buttonWidth, buttonHeight, 8);
+                
+                // Return to normal scale
+                this.scene.tweens.add({
+                    targets: buttonContainer,
+                    scaleX: 1,
+                    scaleY: 1,
+                    duration: 100,
+                    ease: 'Cubic.easeOut'
+                });
+            });
+            
+            // Add to upgrade buttons array for keyboard navigation
+            if (!this.upgradeButtons) this.upgradeButtons = [];
+            this.upgradeButtons.push({
+                area: buttonArea,
+                upgradeKey: upgradeKey,
+                container: buttonContainer
+            });
+        }
+    }
+
+    closeUpgradeShop() {
+        if (this.upgradeShopContainer) {
+            // Clean up keyboard listeners
+            if (this.escKey) this.escKey.destroy();
+            if (this.tabKey) this.tabKey.destroy();
+            if (this.enterKey) this.enterKey.destroy();
+            if (this.spaceKey) this.spaceKey.destroy();
+            
+            // Clean up visual debug if active
+            if (this.visualDebugGraphics) {
+                this.visualDebugGraphics.destroy();
+                this.visualDebugGraphics = null;
+            }
+            
+            // Clean up mouse debug if active
+            if (this.mouseDebugActive) {
+                this.scene.input.off('pointermove', this.mouseDebugHandler);
+                this.scene.input.off('pointerdown', this.mouseDebugHandler);
+                this.mouseDebugActive = false;
+            }
+            
+            // Store reference to container for animation
+            const containerToClose = this.upgradeShopContainer;
+            const panelToClose = this.upgradePanel;
+            
+            // Immediately clear the container reference so input handlers work
+            this.upgradeShopContainer = null;
+            this.upgradePanel = null;
+            this.upgradeShopElements = {};
+            this.upgradeShopCoinsText = null;
+            this.upgradeButtons = [];
+            this.closeButton = null;
+            
+            // Re-enable game interactions
+            this.enableGameInteractions();
+            
+            // Slide down animation
+            this.scene.tweens.add({
+                targets: panelToClose,
+                y: this.scene.game.config.height + 50,
+                duration: 300,
+                ease: 'Cubic.easeIn',
+                onComplete: () => {
+                    containerToClose.destroy();
+                    this.announceToScreenReader("Upgrade shop closed");
+                }
+            });
+        }
+    }
+
+    getRocketUpgradeInfo(upgrade) {
+        const level = upgrade.level;
+        if (level === 0) {
+            return "Unlock basic rocket with fuel system";
+        }
+        
+        // Calculate stats for current level
+        const thrust = upgrade.baseThrust + (level * 2);
+        const fuelCapacity = upgrade.baseFuelCapacity + (level * 20);
+        const fuelEfficiency = Math.round((1 - (level * 0.08)) * 100);
+        const canMoveUp = level >= 3;
+        
+        let info = `Thrust: ${thrust} | Fuel: ${fuelCapacity} | Efficiency: ${fuelEfficiency}%`;
+        
+        if (level < 3) {
+            info += " | Left/Right only";
+        } else {
+            info += " | Full movement (UP unlocked)";
+        }
+        
+        return info;
+    }
+
+    buyUpgrade(key) {
+        const result = this.scene.upgradeSystem.buyUpgrade(key);
+        
+        if (result !== null) {
+            // Add success feedback animation
+            this.showUpgradeSuccessAnimation(key);
+            
+            // Update the entire upgrade shop display
+            this.updateUpgradeShop();
+            
+            // CRITICAL FIX: Apply upgrade effects immediately to the game
+            // Call the GameScene's buyUpgrade method to apply effects to game state
+            this.scene.buyUpgrade(key);
+            
+            // Play purchase sound effect
+            this.playButtonSound();
+            
+            // Update building indicator
+            this.updateUpgradeBuildingIndicator();
+        }
+    }
+    
+    showUpgradeSuccessAnimation(upgradeKey) {
+        const elements = this.upgradeShopElements[upgradeKey];
+        if (!elements) return;
+        
+        // Create success flash overlay
+        const flashOverlay = this.scene.add.graphics();
+        flashOverlay.fillStyle(0x4a6a2a, 0.7);
+        flashOverlay.fillRoundedRect(-this.panelWidth/2 + 20, -45, this.panelWidth - 40, 90, 12);
+        elements.container.add(flashOverlay);
+        
+        // Flash animation
+        this.scene.tweens.add({
+            targets: flashOverlay,
+            alpha: 0,
+            duration: 300,
+            ease: 'Cubic.easeOut',
+            onComplete: () => {
+                flashOverlay.destroy();
+            }
+        });
+        
+        // Create success text
+        const successText = this.scene.add.text(0, 0, 'UPGRADED!', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            fill: '#4a6a2a',
+            fontWeight: 'bold'
+        });
+        successText.setOrigin(0.5, 0.5);
+        successText.setAlpha(0);
+        elements.container.add(successText);
+        
+        // Success text animation
+        this.scene.tweens.add({
+            targets: successText,
+            alpha: 1,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            duration: 200,
+            ease: 'Back.easeOut',
+            onComplete: () => {
+                this.scene.tweens.add({
+                    targets: successText,
+                    alpha: 0,
+                    scaleX: 1,
+                    scaleY: 1,
+                    duration: 300,
+                    delay: 200,
+                    ease: 'Cubic.easeIn',
+                    onComplete: () => {
+                        successText.destroy();
+                    }
+                });
+            }
+        });
+        
+        // Add coin particles effect
+        this.createCoinParticles(elements.container);
+    }
+    
+    createCoinParticles(container) {
+        const particleCount = 8;
+        const particles = [];
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = this.scene.add.text(0, 0, '💰', {
+                fontSize: '12px'
+            });
+            particle.setOrigin(0.5, 0.5);
+            particle.setAlpha(0.8);
+            container.add(particle);
+            particles.push(particle);
+            
+            // Random direction for particles
+            const angle = (i / particleCount) * Math.PI * 2;
+            const distance = 50;
+            const targetX = Math.cos(angle) * distance;
+            const targetY = Math.sin(angle) * distance;
+            
+            // Animate particle
+            this.scene.tweens.add({
+                targets: particle,
+                x: targetX,
+                y: targetY,
+                alpha: 0,
+                scaleX: 0.3,
+                scaleY: 0.3,
+                duration: 600,
+                ease: 'Cubic.easeOut',
+                onComplete: () => {
+                    particle.destroy();
+                }
+            });
+        }
+    }
+
+
+
+    updateUpgradeBuildingIndicator() {
+        // Update indicator based on available upgrades
+        if (this.upgradeIndicator) {
+            const canAffordAnyUpgrade = this.canAffordAnyUpgrade();
+            
+            if (canAffordAnyUpgrade) {
+                // Make indicator more prominent when upgrades are available
+                this.upgradeIndicator.getAll().forEach(child => {
+                    if (child.fillStyle) {
+                        child.clear();
+                        child.fillStyle(0x00FF00, 1); // Green when affordable
+                        child.fillCircle(0, 0, 15);
+                        child.lineStyle(2, 0xFFFFFF, 0.9);
+                        child.strokeCircle(0, 0, 15);
+                    }
+                });
+            } else {
+                // Normal blue indicator
+                this.upgradeIndicator.getAll().forEach(child => {
+                    if (child.fillStyle) {
+                        child.clear();
+                        child.fillStyle(0x4A90E2, 0.8); // Blue when not affordable
+                        child.fillCircle(0, 0, 15);
+                        child.lineStyle(2, 0xFFFFFF, 0.9);
+                        child.strokeCircle(0, 0, 15);
+                    }
+                });
+            }
+        }
+    }
+
+    canAffordAnyUpgrade() {
+        const coins = this.scene.upgradeSystem.getCoins();
+        const upgrades = this.scene.upgradeSystem.upgrades;
+        
+        for (const key in upgrades) {
+            const upgrade = upgrades[key];
+            if (upgrade.level < upgrade.maxLevel && coins >= upgrade.cost) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    setupButtonDebugHotkey() {
+        // Add keyboard listener for 'B' key to debug button alignment
+        this.scene.input.keyboard.on('keydown-B', () => {
+            this.debugButtonAlignment();
+        });
+        
+        // Add keyboard listener for 'V' key to toggle visual debug
+        this.scene.input.keyboard.on('keydown-V', () => {
+            this.toggleVisualButtonDebug();
+        });
+        
+        // Add keyboard listener for 'M' key to show mouse position debug
+        this.scene.input.keyboard.on('keydown-M', () => {
+            this.toggleMousePositionDebug();
+        });
+        
+        // Add keyboard listener for 'D' key to check DPI compatibility
+        this.scene.input.keyboard.on('keydown-D', () => {
+            this.checkDPICompatibility();
+        });
+        
+        console.log('🔧 Debug Hotkeys Added:');
+        console.log('  - Press "B" to log button alignment details');
+        console.log('  - Press "V" to toggle visual button debug overlay');
+        console.log('  - Press "M" to toggle mouse position debug');
+        console.log('  - Press "D" to check DPI compatibility');
+        console.log('  - Open upgrade shop first, then use debug hotkeys');
+    }
+    
+    debugButtonAlignment() {
+        console.log('🔍 ==================== BUTTON ALIGNMENT DEBUG ====================');
+        console.log('📍 Upgrade Shop Status:', this.upgradeShopContainer ? 'OPEN' : 'CLOSED');
+        
+        if (!this.upgradeShopContainer) {
+            console.log('❌ Upgrade shop is not open - no buttons to debug');
+            return;
+        }
+        
+        console.log('📊 Container Info:');
+        console.log('  - Container Position:', { x: this.upgradeShopContainer.x, y: this.upgradeShopContainer.y });
+        console.log('  - Container Scale:', { x: this.upgradeShopContainer.scaleX, y: this.upgradeShopContainer.scaleY });
+        console.log('  - Container Depth:', this.upgradeShopContainer.depth);
+        
+        console.log('🎯 Button Alignment Analysis:');
+        
+        // Debug each upgrade row
+        Object.keys(this.upgradeShopElements).forEach((key, index) => {
+            const row = this.upgradeShopElements[key];
+            console.log(`\n🔹 ${key.toUpperCase()} Upgrade (Row ${index + 1}):`);
+            
+            if (row.buyButton && row.buttonArea) {
+                // Calculate world positions
+                const containerWorldX = this.upgradeShopContainer.x;
+                const containerWorldY = this.upgradeShopContainer.y;
+                const rowWorldY = containerWorldY + row.container.y;
+                
+                // Button text position
+                const buttonTextX = containerWorldX + row.buyButton.x;
+                const buttonTextY = rowWorldY + row.buyButton.y;
+                
+                // Button area position
+                const buttonAreaX = containerWorldX + row.buttonArea.x;
+                const buttonAreaY = rowWorldY + row.buttonArea.y;
+                
+                // Calculate button text bounds
+                const buttonTextBounds = row.buyButton.getBounds();
+                const buttonText = row.buyButton.text;
+                
+                console.log('  📝 Button Text Info:');
+                console.log('    - Text:', `"${buttonText}"`);
+                console.log('    - Origin:', { x: row.buyButton.originX, y: row.buyButton.originY });
+                console.log('    - Local Position:', { x: row.buyButton.x, y: row.buyButton.y });
+                console.log('    - World Position:', { x: buttonTextX, y: buttonTextY });
+                console.log('    - Text Bounds:', {
+                    x: buttonTextBounds.x,
+                    y: buttonTextBounds.y,
+                    width: buttonTextBounds.width,
+                    height: buttonTextBounds.height
+                });
+                
+                console.log('  🎯 Button Area Info:');
+                console.log('    - Local Position:', { x: row.buttonArea.x, y: row.buttonArea.y });
+                console.log('    - World Position:', { x: buttonAreaX, y: buttonAreaY });
+                console.log('    - Size:', { width: row.buttonArea.width, height: row.buttonArea.height });
+                console.log('    - Interactive:', row.buttonArea.input ? 'YES' : 'NO');
+                
+                // Calculate alignment differences
+                const xDifference = buttonAreaX - buttonTextX;
+                const yDifference = buttonAreaY - buttonTextY;
+                
+                console.log('  ⚠️  Alignment Analysis:');
+                console.log('    - X Offset:', xDifference.toFixed(2), 'pixels');
+                console.log('    - Y Offset:', yDifference.toFixed(2), 'pixels');
+                
+                // Check if button area covers text properly
+                const textLeft = buttonTextBounds.x;
+                const textRight = buttonTextBounds.x + buttonTextBounds.width;
+                const textTop = buttonTextBounds.y;
+                const textBottom = buttonTextBounds.y + buttonTextBounds.height;
+                
+                const areaLeft = buttonAreaX - (row.buttonArea.width / 2);
+                const areaRight = buttonAreaX + (row.buttonArea.width / 2);
+                const areaTop = buttonAreaY - (row.buttonArea.height / 2);
+                const areaBottom = buttonAreaY + (row.buttonArea.height / 2);
+                
+                const coversText = (areaLeft <= textLeft && areaRight >= textRight && 
+                                 areaTop <= textTop && areaBottom >= textBottom);
+                
+                console.log('  ✅ Coverage Analysis:');
+                console.log('    - Text Bounds:', { left: textLeft.toFixed(1), right: textRight.toFixed(1), top: textTop.toFixed(1), bottom: textBottom.toFixed(1) });
+                console.log('    - Area Bounds:', { left: areaLeft.toFixed(1), right: areaRight.toFixed(1), top: areaTop.toFixed(1), bottom: areaBottom.toFixed(1) });
+                console.log('    - Covers Text:', coversText ? '✅ YES' : '❌ NO');
+                
+                if (!coversText) {
+                    console.log('  🚨 ISSUE DETECTED: Button area does not properly cover text!');
+                }
+                
+                if (Math.abs(xDifference) > 5 || Math.abs(yDifference) > 5) {
+                    console.log('  🚨 ISSUE DETECTED: Significant alignment offset!');
+                }
+                
+            } else if (row.buyButton && !row.buttonArea) {
+                console.log('  ❌ Has button text but NO button area!');
+            } else {
+                console.log('  ✅ Max level reached - no button to debug');
+            }
+        });
+        
+        console.log('\n🔧 Debug Tips:');
+        console.log('  - Button text should be at (170, 15) relative to row');
+        console.log('  - Button area should be at (170, 15) with same origin as text');
+        console.log('  - Area should be sized to match text bounds + 24px padding for 2K monitor compatibility');
+        console.log('  - For high DPI displays (>1.0), clicks are more forgiving');
+        console.log('  - Look for alignment offsets > 5 pixels or coverage issues');
+        
+        console.log('🔍 ==================== END DEBUG ====================\n');
+    }
+    
+    toggleVisualButtonDebug() {
+        if (!this.upgradeShopContainer) {
+            console.log('❌ Upgrade shop is not open - no buttons to debug visually');
+            return;
+        }
+        
+        if (this.visualDebugGraphics) {
+            // Remove existing debug graphics
+            this.visualDebugGraphics.destroy();
+            this.visualDebugGraphics = null;
+            console.log('🔍 Visual button debug: OFF');
+        } else {
+            // Create visual debug graphics
+            this.visualDebugGraphics = this.scene.add.graphics();
+            this.visualDebugGraphics.setDepth(5000); // Above everything
+            this.visualDebugGraphics.setScrollFactor(0); // Fixed to camera
+            
+            this.drawButtonDebugOverlay();
+            console.log('🔍 Visual button debug: ON');
+        }
+    }
+    
+    drawButtonDebugOverlay() {
+        if (!this.visualDebugGraphics || !this.upgradeShopContainer) return;
+        
+        this.visualDebugGraphics.clear();
+        
+        // Debug each upgrade row
+        Object.keys(this.upgradeShopElements).forEach((key, index) => {
+            const row = this.upgradeShopElements[key];
+            
+            if (row.buyButton && row.buttonArea) {
+                // Calculate world positions
+                const containerWorldX = this.upgradeShopContainer.x;
+                const containerWorldY = this.upgradeShopContainer.y;
+                const rowWorldY = containerWorldY + row.container.y;
+                
+                // Button text bounds
+                const buttonTextBounds = row.buyButton.getBounds();
+                
+                // Button area bounds
+                const buttonAreaX = containerWorldX + row.buttonArea.x;
+                const buttonAreaY = rowWorldY + row.buttonArea.y;
+                const areaLeft = buttonAreaX - (row.buttonArea.width / 2);
+                const areaRight = buttonAreaX + (row.buttonArea.width / 2);
+                const areaTop = buttonAreaY - (row.buttonArea.height / 2);
+                const areaBottom = buttonAreaY + (row.buttonArea.height / 2);
+                
+                // Draw button text bounds (blue)
+                this.visualDebugGraphics.lineStyle(2, 0x0000FF, 0.8);
+                this.visualDebugGraphics.strokeRect(
+                    buttonTextBounds.x,
+                    buttonTextBounds.y,
+                    buttonTextBounds.width,
+                    buttonTextBounds.height
+                );
+                
+                // Draw button area bounds (red)
+                this.visualDebugGraphics.lineStyle(2, 0xFF0000, 0.8);
+                this.visualDebugGraphics.strokeRect(
+                    areaLeft,
+                    areaTop,
+                    row.buttonArea.width,
+                    row.buttonArea.height
+                );
+                
+                // Draw center points
+                this.visualDebugGraphics.fillStyle(0x0000FF, 1);
+                this.visualDebugGraphics.fillCircle(
+                    buttonTextBounds.x + buttonTextBounds.width / 2,
+                    buttonTextBounds.y + buttonTextBounds.height / 2,
+                    3
+                );
+                
+                this.visualDebugGraphics.fillStyle(0xFF0000, 1);
+                this.visualDebugGraphics.fillCircle(buttonAreaX, buttonAreaY, 3);
+                
+                // Add labels
+                const labelStyle = {
+                    fontSize: '12px',
+                    fill: '#FFFFFF',
+                    backgroundColor: '#000000',
+                    padding: { x: 4, y: 2 }
+                };
+                
+                this.scene.add.text(
+                    buttonTextBounds.x,
+                    buttonTextBounds.y - 20,
+                    `${key.toUpperCase()} Text`,
+                    labelStyle
+                ).setDepth(5001).setScrollFactor(0);
+                
+                this.scene.add.text(
+                    areaLeft,
+                    areaTop - 20,
+                    `${key.toUpperCase()} Area`,
+                    { ...labelStyle, fill: '#FF0000' }
+                ).setDepth(5001).setScrollFactor(0);
+            }
+        });
+        
+        // Add legend
+        const legendY = 50;
+        this.scene.add.text(50, legendY, 'BUTTON DEBUG LEGEND:', {
+            fontSize: '14px',
+            fill: '#FFFFFF',
+            backgroundColor: '#000000',
+            padding: { x: 6, y: 4 }
+        }).setDepth(5001).setScrollFactor(0);
+        
+        this.scene.add.text(50, legendY + 25, '🔵 Blue: Button Text Bounds', {
+            fontSize: '12px',
+            fill: '#0000FF',
+            backgroundColor: '#000000',
+            padding: { x: 4, y: 2 }
+        }).setDepth(5001).setScrollFactor(0);
+        
+        this.scene.add.text(50, legendY + 45, '🔴 Red: Button Click Area', {
+            fontSize: '12px',
+            fill: '#FF0000',
+            backgroundColor: '#000000',
+            padding: { x: 4, y: 2 }
+        }).setDepth(5001).setScrollFactor(0);
+        
+                 this.scene.add.text(50, legendY + 65, 'Perfect alignment: Red should cover Blue', {
+             fontSize: '10px',
+             fill: '#FFFF00',
+             backgroundColor: '#000000',
+             padding: { x: 4, y: 2 }
+         }).setDepth(5001).setScrollFactor(0);
+     }
+     
+     disableGameInteractions() {
+         // Store original interaction states
+         this.originalInteractionStates = {
+             playerInteractive: false,
+             buildingInteractive: false,
+             isPulling: false
+         };
+         
+         // Disable player interactions
+         if (this.scene.player && this.scene.player.input) {
+             this.originalInteractionStates.playerInteractive = this.scene.player.input.enabled;
+             this.scene.player.disableInteractive();
+         }
+         
+         // Disable upgrade building interactions (player can't click it while shop is open)
+         if (this.upgradeBuilding && this.upgradeBuilding.input) {
+             this.originalInteractionStates.buildingInteractive = this.upgradeBuilding.input.enabled;
+             this.upgradeBuilding.disableInteractive();
+         }
+         
+         // Store and disable pulling state
+         this.originalInteractionStates.isPulling = this.scene.isPulling;
+         this.scene.isPulling = false;
+         
+         // Disable launching keyboard inputs
+         this.disabledKeys = [];
+         ['SPACE', 'ENTER', 'W', 'A', 'S', 'D'].forEach(keyCode => {
+             const key = this.scene.input.keyboard.addKey(keyCode);
+             if (key.enabled) {
+                 key.enabled = false;
+                 this.disabledKeys.push(key);
+             }
+         });
+         
+         // Hide launch ready indicator and related elements
+         this.hideLaunchReadyIndicators();
+         
+         console.log('🔒 Game interactions disabled - upgrade shop modal active');
+     }
+     
+     enableGameInteractions() {
+         // Restore original interaction states
+         if (this.originalInteractionStates) {
+             // Restore player interactions
+             if (this.scene.player && this.originalInteractionStates.playerInteractive) {
+                 this.scene.player.setInteractive();
+             }
+             
+             // Restore upgrade building interactions
+             if (this.upgradeBuilding && this.originalInteractionStates.buildingInteractive) {
+                 this.upgradeBuilding.setInteractive();
+             }
+             
+             // Restore pulling state
+             this.scene.isPulling = this.originalInteractionStates.isPulling;
+         }
+         
+         // Re-enable disabled keyboard inputs
+         if (this.disabledKeys) {
+             this.disabledKeys.forEach(key => {
+                 key.enabled = true;
+             });
+             this.disabledKeys = [];
+         }
+         
+         console.log('🔓 Game interactions enabled - upgrade shop closed');
+     }
+     
+     toggleMousePositionDebug() {
+         if (!this.upgradeShopContainer) {
+             console.log('❌ Upgrade shop is not open - no mouse debug needed');
+             return;
+         }
+         
+         if (this.mouseDebugActive) {
+             // Remove mouse debug
+             this.scene.input.off('pointermove', this.mouseDebugHandler);
+             this.scene.input.off('pointerdown', this.mouseDebugHandler);
+             this.mouseDebugActive = false;
+             console.log('🖱️ Mouse position debug: OFF');
+         } else {
+             // Add mouse debug
+             this.mouseDebugHandler = (pointer) => {
+                 console.log('🖱️ Mouse position:', {
+                     screenX: pointer.x,
+                     screenY: pointer.y,
+                     worldX: pointer.worldX,
+                     worldY: pointer.worldY,
+                     containerCenterX: this.upgradeShopContainer.x,
+                     containerCenterY: this.upgradeShopContainer.y,
+                     relativeToContainerX: pointer.x - this.upgradeShopContainer.x,
+                     relativeToContainerY: pointer.y - this.upgradeShopContainer.y,
+                     screenDimensions: {
+                         width: this.scene.scale.width,
+                         height: this.scene.scale.height
+                     },
+                     cameraDimensions: {
+                         width: this.scene.cameras.main.width,
+                         height: this.scene.cameras.main.height
+                     }
+                 });
+             };
+             
+             this.scene.input.on('pointermove', this.mouseDebugHandler);
+             this.scene.input.on('pointerdown', this.mouseDebugHandler);
+             this.mouseDebugActive = true;
+             console.log('🖱️ Mouse position debug: ON - move mouse around upgrade shop');
+         }
+     }
+
+    /**
+     * Check if corrected coordinates are within button bounds
+     * @param {Object} correctedCoords - Corrected coordinates from convertPointerToGameCoords
+     * @param {Phaser.GameObjects.Rectangle} buttonArea - The button area object
+     * @returns {boolean} True if within bounds
+     */
+    isClickWithinButtonBounds(correctedCoords, buttonArea) {
+        const transform = buttonArea.getWorldTransformMatrix();
+        const buttonCenterX = transform.tx;
+        const buttonCenterY = transform.ty;
+        const halfWidth = buttonArea.width / 2;
+        const halfHeight = buttonArea.height / 2;
+        
+        const bounds = {
+            left: buttonCenterX - halfWidth,
+            right: buttonCenterX + halfWidth,
+            top: buttonCenterY - halfHeight,
+            bottom: buttonCenterY + halfHeight
+        };
+        
+        const isWithin = correctedCoords.x >= bounds.left && 
+                        correctedCoords.x <= bounds.right &&
+                        correctedCoords.y >= bounds.top && 
+                        correctedCoords.y <= bounds.bottom;
+        
+        console.log('Button bounds check:', {
+            correctedCoords: { x: correctedCoords.x, y: correctedCoords.y },
+            buttonBounds: bounds,
+            isWithin: isWithin,
+            buttonCenter: { x: buttonCenterX, y: buttonCenterY },
+            buttonSize: { width: buttonArea.width, height: buttonArea.height }
+        });
+        
+        return isWithin;
+    }
+
+    /**
+     * Create DPI-aware button interaction for high DPI displays
+     * @param {Phaser.GameObjects.Rectangle} buttonArea - The button area
+     * @param {string} buttonKey - Key identifying the button
+     * @param {Function} callback - Callback function when button is clicked
+     */
+    setupDPIAwareButtonInteraction(buttonArea, buttonKey, callback) {
+        // Remove existing interaction to avoid duplicates
+        buttonArea.removeInteractive();
+        
+        // Create custom interaction that handles DPI scaling
+        const interactionArea = new Phaser.Geom.Rectangle(
+            -buttonArea.width / 2,
+            -buttonArea.height / 2,
+            buttonArea.width,
+            buttonArea.height
+        );
+        
+        buttonArea.setInteractive(interactionArea, Phaser.Geom.Rectangle.Contains, { useHandCursor: true })
+        .on('pointerdown', (pointer) => {
+            const correctedCoords = this.convertPointerToGameCoords(pointer);
+            
+            // For high DPI displays, be more forgiving with bounds checking
+            if (this.devicePixelRatio > 1) {
+                const isWithinBounds = this.isClickWithinButtonBounds(correctedCoords, buttonArea);
+                const expandedBounds = this.isClickWithinExpandedButtonBounds(correctedCoords, buttonArea, 30);
+                
+                console.log(`High DPI click validation for ${buttonKey}:`, {
+                    devicePixelRatio: this.devicePixelRatio,
+                    isWithinBounds: isWithinBounds,
+                    isWithinExpandedBounds: expandedBounds,
+                    correctedCoords: correctedCoords,
+                    willAcceptClick: true // Always accept for moderate high DPI
+                });
+                
+                // For devicePixelRatio between 1.0-2.0, always accept (with larger button areas)
+                // For very high DPI (2.0+), check expanded bounds
+                if (this.devicePixelRatio < 2.0 || isWithinBounds || expandedBounds) {
+                    callback(pointer, correctedCoords);
+                } else {
+                    console.log(`Very high DPI click outside all bounds for ${buttonKey}, trying fallback`);
+                    // Even for very high DPI, try the callback as a fallback
+                    callback(pointer, correctedCoords);
+                }
+            } else {
+                // Normal DPI handling
+                callback(pointer, correctedCoords);
+            }
+        });
+    }
+
+    /**
+     * Detect if user is on high DPI display and provide compatibility warnings
+     * @returns {Object} DPI information and compatibility status
+     */
+    checkDPICompatibility() {
+        const dpiInfo = {
+            devicePixelRatio: this.devicePixelRatio,
+            isHighDPI: this.devicePixelRatio > 1,
+            is2K: this.devicePixelRatio >= 1.5,
+            is4K: this.devicePixelRatio >= 2.0,
+            windowSize: {
+                width: window.innerWidth,
+                height: window.innerHeight
+            },
+            screenSize: {
+                width: window.screen.width,
+                height: window.screen.height
+            },
+            canvasSize: {
+                width: this.scene.sys.canvas.width,
+                height: this.scene.sys.canvas.height
+            },
+            gameSize: {
+                width: this.scene.cameras.main.width,
+                height: this.scene.cameras.main.height
+            }
+        };
+        
+        // Provide helpful warnings for high DPI displays
+        if (dpiInfo.isHighDPI) {
+            console.log('🖥️ High DPI Display Detected:', dpiInfo);
+            console.log('💡 DPI Compatibility Tips:');
+            console.log('   - If buttons are hard to click, try changing browser zoom to 100%');
+            console.log('   - If using Windows, try adjusting display scaling');
+            console.log('   - Press F12 and check console for detailed click debugging');
+        }
+        
+        return dpiInfo;
+    }
+
+    /**
+     * Check if corrected coordinates are within expanded button bounds (for high DPI tolerance)
+     * @param {Object} correctedCoords - Corrected coordinates from convertPointerToGameCoords
+     * @param {Phaser.GameObjects.Rectangle} buttonArea - The button area object
+     * @param {number} tolerance - Additional pixels of tolerance
+     * @returns {boolean} True if within expanded bounds
+     */
+    isClickWithinExpandedButtonBounds(correctedCoords, buttonArea, tolerance = 20) {
+        const transform = buttonArea.getWorldTransformMatrix();
+        const buttonCenterX = transform.tx;
+        const buttonCenterY = transform.ty;
+        const halfWidth = (buttonArea.width / 2) + tolerance;
+        const halfHeight = (buttonArea.height / 2) + tolerance;
+        
+        const bounds = {
+            left: buttonCenterX - halfWidth,
+            right: buttonCenterX + halfWidth,
+            top: buttonCenterY - halfHeight,
+            bottom: buttonCenterY + halfHeight
+        };
+        
+        const isWithin = correctedCoords.x >= bounds.left && 
+                        correctedCoords.x <= bounds.right &&
+                        correctedCoords.y >= bounds.top && 
+                        correctedCoords.y <= bounds.bottom;
+        
+        console.log('Expanded button bounds check:', {
+            tolerance: tolerance,
+            correctedCoords: { x: correctedCoords.x, y: correctedCoords.y },
+            expandedBounds: bounds,
+            isWithinExpanded: isWithin,
+            buttonCenter: { x: buttonCenterX, y: buttonCenterY },
+            expandedSize: { width: buttonArea.width + (tolerance * 2), height: buttonArea.height + (tolerance * 2) }
+        });
+        
+        return isWithin;
+    }
+}  

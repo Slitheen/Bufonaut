@@ -130,11 +130,6 @@ export class CollisionSystem {
             return;
         }
         
-        // Only interact with balloons when falling down (not when flying up)
-        if (player.body.velocity.y < 0) {
-            return; // Pass through when flying upward
-        }
-        
         // Check collision cooldown
         if (this.isOnCooldown(balloon.name)) {
             return;
@@ -142,6 +137,23 @@ export class CollisionSystem {
         
         // Set cooldown for this balloon
         this.setCooldown(balloon.name);
+        
+        // Always delete the balloon when hit (pass-through or interaction)
+        // Remove from age tracking before destroying
+        if (balloon.name) {
+            this.scene.objectSpawner.assetAgeMap.delete(balloon.name);
+        }
+
+        // Deactivate the balloon, hide it, and disable its physics body.
+        balloon.setActive(false).setVisible(false);
+        balloon.body.enable = false;
+        
+        // Only apply physics when falling down (not when flying up)
+        if (player.body.velocity.y < 0) {
+            // Pass through when flying upward - delete asset but no velocity change
+            this.debugLog(`Balloon passed through while flying upward - deleted but no velocity change`, 'balloon_pass_through_up');
+            return;
+        }
         
         // Store original velocity for comparison
         const originalVelocityY = player.body.velocity.y;
@@ -153,21 +165,12 @@ export class CollisionSystem {
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
         
         if (isMovingDown && isOnTop) {
-            // Landing on top - give a small bounce instead of boost
+            // Landing on top - give a significant bounce (3-4 Bufo heights: 225-300 pixels)
             this.safeVelocityChange(player, 
                 player.body.velocity.x * 0.9, // Maintain most horizontal momentum
-                -120 // Small upward bounce
+                -450 // Strong upward bounce for 3-4 Bufo heights (was -150)
             );
-            this.debugLog(`Balloon top hit! Small bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_bounce');
-            
-            // Remove from age tracking before destroying
-            if (balloon.name) {
-                this.scene.objectSpawner.assetAgeMap.delete(balloon.name);
-            }
-
-            // Deactivate the balloon, hide it, and disable its physics body.
-            balloon.setActive(false).setVisible(false);
-            balloon.body.enable = false;
+            this.debugLog(`Balloon top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_bounce');
             
             // Add bounce visual effect
             this.addBounceEffect(player.x, player.y);
@@ -176,7 +179,6 @@ export class CollisionSystem {
         } else {
             // When falling but not on top, pass through (no interaction)
             this.debugLog(`Balloon passed through while falling - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_pass_through');
-            return; // Exit without any collision effects
         }
     }
 
@@ -186,11 +188,6 @@ export class CollisionSystem {
             return;
         }
         
-        // Only interact with birds when falling down (not when flying up)
-        if (player.body.velocity.y < 0) {
-            return; // Pass through when flying upward
-        }
-        
         // Check collision cooldown
         if (this.isOnCooldown(bird.name)) {
             return;
@@ -198,6 +195,23 @@ export class CollisionSystem {
         
         // Set cooldown for this bird
         this.setCooldown(bird.name);
+        
+        // Always delete the bird when hit (pass-through or interaction)
+        // Remove from age tracking before destroying
+        if (bird.name) {
+            this.scene.objectSpawner.assetAgeMap.delete(bird.name);
+        }
+
+        // Deactivate the bird, hide it, and disable its physics body.
+        bird.setActive(false).setVisible(false);
+        bird.body.enable = false;
+        
+        // Only apply physics when falling down (not when flying up)
+        if (player.body.velocity.y < 0) {
+            // Pass through when flying upward - delete asset but no velocity change
+            this.debugLog(`Bird passed through while flying upward - deleted but no velocity change`, 'bird_pass_through_up');
+            return;
+        }
         
         // Store original velocity for comparison
         const originalVelocityY = player.body.velocity.y;
@@ -209,21 +223,12 @@ export class CollisionSystem {
         const isMovingDown = player.body.velocity.y > 0; // Any downward movement
         
         if (isMovingDown && isOnTop) {
-            // Landing on top - give a small bounce instead of boost
+            // Landing on top - give a significant bounce (3-4 Bufo heights: 225-300 pixels)
             this.safeVelocityChange(player,
                 player.body.velocity.x * 0.9, // Maintain most horizontal momentum
-                -140 // Slightly stronger bounce than balloons
+                -475 // Strong upward bounce for 3-4 Bufo heights, slightly stronger than balloons (was -175)
             );
-            this.debugLog(`Bird top hit! Small bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_bounce');
-            
-            // Remove from age tracking before destroying
-            if (bird.name) {
-                this.scene.objectSpawner.assetAgeMap.delete(bird.name);
-            }
-
-            // Deactivate the bird, hide it, and disable its physics body.
-            bird.setActive(false).setVisible(false);
-            bird.body.enable = false;
+            this.debugLog(`Bird top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_bounce');
             
             // Add bounce visual effect
             this.addBounceEffect(player.x, player.y);
@@ -232,7 +237,6 @@ export class CollisionSystem {
         } else {
             // When falling but not on top, pass through (no interaction)
             this.debugLog(`Bird passed through while falling - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_pass_through');
-            return; // Exit without any collision effects
         }
     }
 
@@ -242,15 +246,7 @@ export class CollisionSystem {
             return;
         }
         
-        // Only interact with clouds when falling down (not when flying up)
-        if (player.body.velocity.y < 0) {
-            return; // Pass through when flying upward
-        }
-        
-        // Slow down the player's momentum
-        player.body.velocity.x *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
-        player.body.velocity.y *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
-
+        // Always delete the cloud when hit (pass-through or interaction)
         // Remove from age tracking before destroying
         if (cloud.name) {
             this.scene.objectSpawner.assetAgeMap.delete(cloud.name);
@@ -259,6 +255,17 @@ export class CollisionSystem {
         // Deactivate the cloud, hide it, and disable its physics body.
         cloud.setActive(false).setVisible(false);
         cloud.body.enable = false;
+        
+        // Only apply physics when falling down (not when flying up)
+        if (player.body.velocity.y < 0) {
+            // Pass through when flying upward - delete asset but no velocity change
+            this.debugLog(`Cloud passed through while flying upward - deleted but no velocity change`, 'cloud_pass_through_up');
+            return;
+        }
+        
+        // Slow down the player's momentum
+        player.body.velocity.x *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
+        player.body.velocity.y *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
         
         // Add a visual effect to show the slowdown
         this.addSlowdownEffect(player.x, player.y);

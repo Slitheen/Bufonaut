@@ -38,6 +38,7 @@ export class GameScene extends Phaser.Scene {
     preload() {
         // Load assets
         this.load.image('bufo', 'assets/bufo.png');
+        this.load.image('bufo_failed', 'assets/bufo_failed.png');
         this.load.image('bufo_rocket', 'assets/bufo_rocket.png');
         this.load.image('balloon', 'assets/balloon.png');
         this.load.image('balloon_2', 'assets/balloon_2.png');
@@ -99,6 +100,9 @@ export class GameScene extends Phaser.Scene {
         this.uiSystem.createGameplayArea();
         this.uiSystem.createFloatingUI();
         
+        // Create the upgrade shop building
+        this.uiSystem.createUpgradeShopBuilding();
+        
         // Validate all required textures are loaded before spawning
         this.validateAssets(() => {
             // Spawn objects after assets are validated and player is created
@@ -131,7 +135,7 @@ export class GameScene extends Phaser.Scene {
         console.log('Validating game assets...');
         
         const requiredTextures = [
-            'bufo', 'bufo_rocket', 'balloon', 'balloon_2', 'birds', 'birds_2',
+            'bufo', 'bufo_failed', 'bufo_rocket', 'balloon', 'balloon_2', 'birds', 'birds_2',
             'hot_air_balloon', 'plane', 'satellite', 'martian', 'coin', 'gas_tank',
             'cloud', 'cloud_2', 'cloud_3', 'cloud_4', 'cloud_5', 'cloud_6', 'cloud_7',
             'upgrade_string', 'upgrade_frame', 'upgrade_ship', 'upgrade_rocket',
@@ -307,18 +311,21 @@ export class GameScene extends Phaser.Scene {
             
             // Apply continuous friction to help control velocity when airborne
             if (this.isAirborne && this.player && this.player.body) {
-                // Apply air resistance to slow down excessive velocity
-                const currentVelX = this.player.body.velocity.x;
-                const currentVelY = this.player.body.velocity.y;
-                
-                // Apply air resistance (friction) to horizontal movement
-                if (Math.abs(currentVelX) > 100) {
-                    this.player.body.velocity.x *= 0.995; // Gradual slowdown
-                }
-                
-                // Apply air resistance to vertical movement (but less aggressive)
-                if (Math.abs(currentVelY) > 200) {
-                    this.player.body.velocity.y *= 0.998; // Very gradual slowdown
+                // Only apply air resistance after being airborne for a while to prevent launch interference
+                const timeAirborne = this.time.now - this.launchTime;
+                if (timeAirborne > 1000) { // Wait 1 second after launch before applying air resistance
+                    const currentVelX = this.player.body.velocity.x;
+                    const currentVelY = this.player.body.velocity.y;
+                    
+                    // Apply much gentler air resistance (friction) to horizontal movement
+                    if (Math.abs(currentVelX) > 500) { // Higher threshold
+                        this.player.body.velocity.x *= 0.9995; // Much gentler slowdown
+                    }
+                    
+                    // Apply much gentler air resistance to vertical movement
+                    if (Math.abs(currentVelY) > 1000) { // Higher threshold
+                        this.player.body.velocity.y *= 0.9998; // Much gentler slowdown
+                    }
                 }
             }
 
@@ -421,7 +428,9 @@ export class GameScene extends Phaser.Scene {
             }
 
             if (fuelConsumed) {
-                this.fuel = Math.max(0, this.fuel - 1);
+                // Apply fuel efficiency from rocket upgrades
+                const fuelConsumption = rocketCapabilities.fuelEfficiency || 1.0;
+                this.fuel = Math.max(0, this.fuel - fuelConsumption);
             }
         } else {
             const nudgeThrust = GAME_CONSTANTS.PLAYER.NUDGE_THRUST;
@@ -454,19 +463,6 @@ export class GameScene extends Phaser.Scene {
             cloudBreached: this.uiSystem.cloudBreached
         });
 
-        // CRITICAL FIX: Reset camera to proper launch position with grass edge at bottom
-        // Position camera so the bottom edge of the grass is at the bottom of the screen
-        const grassTileHeight = 80;
-        const additionalGrassRows = 4;
-        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
-        const properCameraY = grassBottomEdge - this.cameras.main.height;
-        this.cameras.main.pan(this.cameras.main.width / 2, properCameraY + this.cameras.main.height / 2, 500, 'Sine.easeInOut');
-        
-        // Reset camera scroll for proper pull calculations with grass edge at bottom
-        this.cameras.main.scrollX = 0;
-        this.cameras.main.scrollY = properCameraY;
-        console.log(`Camera reset to proper launch position with grass edge at bottom: scrollX=${this.cameras.main.scrollX}, scrollY=${this.cameras.main.scrollY}, groundLevel=${this.groundLevel}, grassBottomEdge=${grassBottomEdge}`);
-
         this.player.body.stop();
         this.player.setAngle(0); // Reset rotation when landing
         this.launchZoneIndicator.clear();
@@ -493,39 +489,151 @@ export class GameScene extends Phaser.Scene {
         this.uiSystem.ui.flightDistanceText.setText(`${Math.round(distance)} ft`);
         this.uiSystem.ui.airTimeText.setText(`${airTime.toFixed(1)}s`);
 
-        if (this.upgradeSystem.areAllUpgradesMaxed()) {
-            this.uiSystem.ui.endOfDayContainer.getByName('dayFailedText').setText('LAUNCHER MAXED OUT!');
-        } else {
-            this.uiSystem.ui.endOfDayContainer.getByName('dayFailedText').setText(`Day ${this.dayCount} Failed`);
-        }
-        this.uiSystem.ui.endOfDayContainer.getByName('coinsEarnedText').setText(`You salvaged ${coinsEarned} coins.`);
-        this.uiSystem.ui.endOfDayContainer.setVisible(true);
+        // Create brief flight summary overlay
+        this.createFlightSummary(airTime, distance, coinsEarned);
         
-        console.log('End of day UI should now be visible');
+        // Start Bufo walking back to launch position
+        this.startWalkBackAnimation();
+    }
+
+    createFlightSummary(airTime, distance, coinsEarned) {
+        // Create temporary flight summary that fades away
+        const summaryContainer = this.add.container(this.cameras.main.width / 2, 100);
+        summaryContainer.setScrollFactor(0); // Fixed to camera
+        summaryContainer.setDepth(2000);
+        
+        // Background
+        const bg = this.add.graphics();
+        bg.fillStyle(0x000000, 0.8);
+        bg.fillRoundedRect(-150, -40, 300, 80, 10);
+        bg.lineStyle(2, 0x4A90E2, 0.8);
+        bg.strokeRoundedRect(-150, -40, 300, 80, 10);
+        
+        // Flight stats
+        const statsText = this.add.text(0, -10, `${Math.round(distance)} ft • ${airTime.toFixed(1)}s • +${coinsEarned} coins`, {
+            fontSize: '20px',
+            fill: '#FFFFFF',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold',
+            align: 'center'
+        }).setOrigin(0.5);
+        
+        summaryContainer.add([bg, statsText]);
+        
+        // Fade out animation
+        this.tweens.add({
+            targets: summaryContainer,
+            alpha: 0,
+            y: 50,
+            duration: 3000,
+            ease: 'Sine.easeOut',
+            onComplete: () => {
+                summaryContainer.destroy();
+            }
+        });
+    }
+
+    startWalkBackAnimation() {
+        // Calculate the walk path back to launch position
+        const startX = this.player.x;
+        const startY = this.player.y;
+        const targetX = this.initialPlayerPosition.x;
+        const targetY = this.initialPlayerPosition.y;
+        
+        const walkDistance = Phaser.Math.Distance.Between(startX, startY, targetX, targetY);
+        const walkTime = Math.min(3000, Math.max(1000, walkDistance * 2)); // 1-3 seconds based on distance
+        
+        console.log(`Bufo walking back from (${startX}, ${startY}) to (${targetX}, ${targetY}) over ${walkTime}ms`);
+        
+        // Change sprite to failed appearance for the walk back
+        this.player.setTexture('bufo_failed');
+        console.log('Bufo sprite changed to failed appearance for walk back');
+        
+        // Flip sprite to face the walking direction
+        const walkingLeft = startX > targetX; // If current position is to the right of target, walking left
+        this.player.setFlipX(!walkingLeft); // Invert the flip logic
+        console.log(`Bufo facing ${walkingLeft ? 'left' : 'right'} while walking back`);
+        
+        // Disable physics during walk
+        this.player.body.setEnable(false);
+        
+        // Create walking animation with slight bobbing
+        this.tweens.add({
+            targets: this.player,
+            x: targetX,
+            y: targetY,
+            duration: walkTime,
+            ease: 'Sine.easeInOut',
+            onUpdate: () => {
+                // Add slight bobbing animation to simulate walking
+                const progress = this.tweens.getTweensOf(this.player)[0].progress;
+                const bobAmount = Math.sin(progress * Math.PI * 8) * 3; // 8 bobs during walk
+                this.player.y = targetY + bobAmount;
+            },
+            onComplete: () => {
+                // Ensure final position is exact
+                this.player.setPosition(targetX, targetY);
+                
+                // Pan camera back to launch position
+                this.panCameraToLaunchPosition(() => {
+                    // Auto-restart the day after walking back
+                    this.restartDay();
+                });
+            }
+        });
+        
+        // Also animate camera to follow Bufo back
+        const grassTileHeight = 80;
+        const additionalGrassRows = 4;
+        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
+        const properCameraY = grassBottomEdge - this.cameras.main.height;
+        
+        this.cameras.main.pan(this.cameras.main.width / 2, properCameraY + this.cameras.main.height / 2, walkTime, 'Sine.easeInOut');
+    }
+
+    panCameraToLaunchPosition(callback) {
+        // Reset camera to proper launch position with grass edge at bottom
+        const grassTileHeight = 80;
+        const additionalGrassRows = 4;
+        const grassBottomEdge = this.groundLevel + (grassTileHeight * additionalGrassRows);
+        const properCameraY = grassBottomEdge - this.cameras.main.height;
+        
+        this.cameras.main.scrollX = 0;
+        this.cameras.main.scrollY = properCameraY;
+        
+        console.log(`Camera reset to launch position: scrollX=${this.cameras.main.scrollX}, scrollY=${this.cameras.main.scrollY}`);
+        
+        if (callback) {
+            callback();
+        }
     }
 
     buyUpgrade(key) {
-        const result = this.upgradeSystem.buyUpgrade(key);
-        if (result) {
-            this.maxFuel = result.maxFuel;
-            this.fuel = result.fuel;
-            this.player.setTexture(result.texture);
+        // Apply upgrade effects to game state (don't purchase again - already done by UI)
+        if (key === 'rocket' && this.upgradeSystem.hasRocket()) {
+            const rocketCapabilities = this.upgradeSystem.getRocketCapabilities();
+            this.maxFuel = rocketCapabilities.fuelCapacity;
+            this.fuel = rocketCapabilities.fuelCapacity;
+            this.player.setTexture('bufo_rocket');
             
             // Log rocket upgrade information
-            if (key === 'rocket') {
-                const rocketCapabilities = this.upgradeSystem.getRocketCapabilities();
-                console.log(`Rocket upgraded to Tier ${rocketCapabilities.level}!`);
-                console.log(`Capabilities: Upward movement: ${rocketCapabilities.canMoveUp}, Fuel: ${rocketCapabilities.fuelCapacity}, Thrust: ${rocketCapabilities.thrust}`);
-            }
+            console.log(`Rocket upgraded to Level ${rocketCapabilities.level}!`);
+            console.log(`Capabilities: Upward movement: ${rocketCapabilities.canMoveUp}, Fuel: ${rocketCapabilities.fuelCapacity}, Thrust: ${rocketCapabilities.thrust}, Efficiency: ${Math.round(rocketCapabilities.fuelEfficiency * 100)}%`);
         }
+        
+        // Handle non-rocket upgrades (string, frame, spaceShip)
+        if (key === 'string' || key === 'frame' || key === 'spaceShip') {
+            const upgrade = this.upgradeSystem.upgrades[key];
+            console.log(`${upgrade.name} upgraded to Level ${upgrade.level}! New power: ${upgrade.power.toFixed(1)}`);
+        }
+        
+        // Update UI elements to reflect upgrade changes
         this.uiSystem.updateUpgradeUI();
         this.uiSystem.updateLauncherVisualization();
         this.uiSystem.ui.coinsText.setText(this.upgradeSystem.getCoins());
     }
 
     restartDay() {
-        this.uiSystem.ui.endOfDayContainer.setVisible(false);
-
         this.dayCount++;
         this.uiSystem.ui.dayCountText.setText(this.dayCount);
 
@@ -552,6 +660,7 @@ export class GameScene extends Phaser.Scene {
         this.uiSystem.ui.launchCountText.setText(this.launchCount);
         this.player.setAngle(0);
         this.player.setTexture(this.upgradeSystem.hasRocket() ? 'bufo_rocket' : 'bufo');
+        this.player.setFlipX(false); // Reset sprite flip to face forward
         this.player.setPosition(this.initialPlayerPosition.x, this.initialPlayerPosition.y);
 
         // Reset camera to proper launch position with grass edge at bottom
@@ -772,9 +881,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     createSeamlessBackground() {
-        // Create the seamless background with progressive loading (bottom to top)
+        // Create the seamless background with correct bottom-to-top reveal
         this.worldBackground = this.add.image(0, 0, 'world_background');
-        this.worldBackground.setOrigin(0, 0);
+        this.worldBackground.setOrigin(0, 1); // FIXED: Origin at bottom-left instead of top-left
         this.worldBackground.setDepth(-1000); // Behind everything
         
         // Get the actual background image dimensions
@@ -794,43 +903,38 @@ export class GameScene extends Phaser.Scene {
         const scaledBgHeight = bgHeight * scaleX;
         const repeatCount = Math.ceil(worldHeight / scaledBgHeight);
         
-        // Create background sections from bottom to top for progressive loading
+        // Create background sections from bottom to top for correct reveal
         this.backgroundTiles = [];
         
-        // Create bottom section first (ground/launch area)
-        const bottomTile = this.add.image(0, 0, 'world_background');
-        bottomTile.setOrigin(0, 0);
+        // FIXED: Position the bottom of the PNG at ground level
+        // The bottom of the PNG should be visible at ground level (altitude 0)
+        const groundLevelY = this.groundLevel;
+        
+        // Create bottom section first (ground/launch area) - this shows bottom of PNG
+        const bottomTile = this.add.image(0, groundLevelY, 'world_background');
+        bottomTile.setOrigin(0, 1); // Origin at bottom-left
         bottomTile.setScale(scaleX, scaleX);
         bottomTile.setDepth(-1000);
         this.backgroundTiles.push(bottomTile);
         
-        // Load all background sections immediately to prevent top-to-bottom loading appearance
+        // Create additional tiles going UPWARD (negative Y) to show top portions of PNG
         for (let i = 1; i < repeatCount; i++) {
-            const tile = this.add.image(0, i * scaledBgHeight, 'world_background');
-            tile.setOrigin(0, 0);
+            const tile = this.add.image(0, groundLevelY - (i * scaledBgHeight), 'world_background');
+            tile.setOrigin(0, 1); // Origin at bottom-left
             tile.setScale(scaleX, scaleX);
             tile.setDepth(-1000);
-            
-            // Apply initial positioning immediately
-            tile.y += this.initialBackgroundY;
             
             // Set full alpha immediately - no fade in effect
             tile.setAlpha(1);
             
             this.backgroundTiles.push(tile);
-            console.log(`Background section ${i + 1}/${repeatCount} loaded and positioned`);
+            console.log(`Background section ${i + 1}/${repeatCount} loaded and positioned at Y: ${groundLevelY - (i * scaledBgHeight)}`);
         }
         
-        // Position the background so the ground level is at the bottom of the screen initially
-        const initialY = this.groundLevel - screenHeight;
+        // Store the initial background positioning
+        this.initialBackgroundY = groundLevelY;
         
-        // Apply initial position to bottom tile immediately
-        bottomTile.y += initialY;
-        
-        // Apply to other tiles as they're created
-        this.initialBackgroundY = initialY;
-        
-        console.log('Progressive background loading started (bottom to top):', {
+        console.log('Background loading fixed (bottom-to-top reveal):', {
             originalWidth: bgWidth,
             originalHeight: bgHeight,
             screenWidth: screenWidth,
@@ -840,7 +944,9 @@ export class GameScene extends Phaser.Scene {
             worldHeight: worldHeight,
             repeatCount: repeatCount,
             groundLevel: this.groundLevel,
-            initialY: initialY
+            groundLevelY: groundLevelY,
+            bottomTileY: groundLevelY,
+            topTileY: groundLevelY - ((repeatCount - 1) * scaledBgHeight)
         });
     }
 
@@ -851,30 +957,47 @@ export class GameScene extends Phaser.Scene {
         const playerAltitude = this.groundLevel - this.player.y;
         const maxAltitude = Math.abs(GAME_CONSTANTS.WORLD_TOP);
         
-        // Calculate what portion of the background should be visible
+        // Calculate what portion of the background should be visible (0 = bottom of PNG, 1 = top of PNG)
         const backgroundProgress = Math.max(0, Math.min(1, playerAltitude / maxAltitude));
         const screenHeight = this.cameras.main.height;
         const scaledBgHeight = this.worldBackground.height * this.worldBackground.scaleX;
         
-        // Calculate the target Y position for the background tiles
-        const baseY = this.initialBackgroundY || (this.groundLevel - screenHeight);
-        const targetY = baseY - (scaledBgHeight * this.backgroundTiles.length - screenHeight) * backgroundProgress;
+        // FIXED: Simplified scrolling logic since tiles are now positioned correctly
+        // At ground level (altitude 0): Bottom PNG is visible, tiles stay at original positions
+        // As altitude increases: Background moves with camera to reveal higher portions
         
-        // Smoothly move all background tiles (including progressively loaded ones)
+        // The background tiles are now positioned correctly from the start:
+        // - Bottom tile at groundLevel (shows bottom of PNG)
+        // - Higher tiles at increasingly negative Y positions (show top portions)
+        // They should move naturally with the camera without complex calculations
+        
+        // Calculate camera-relative positioning
+        const cameraY = this.cameras.main.scrollY;
+        const baseGroundY = this.groundLevel;
+        
+        // Update each tile position relative to camera movement
         this.backgroundTiles.forEach((tile, index) => {
-            if (tile && tile.active) { // Check if tile exists and is active
-                const tileTargetY = targetY + (index * scaledBgHeight);
-                tile.y = Phaser.Math.Linear(tile.y, tileTargetY, 0.1);
+            if (tile && tile.active) {
+                // Each tile should maintain its relative position to ground level
+                // Tile 0 is at groundLevel, Tile 1 is one tile height above, etc.
+                const tileBaseY = baseGroundY - (index * scaledBgHeight);
+                
+                // Keep tiles in their correct positions - they move naturally with world coordinates
+                tile.y = tileBaseY;
             }
         });
         
-        // Debug progressive loading
+        // Debug scrolling
         if (this.time.now % 120 === 0) { // Log every 120 frames (2 seconds at 60fps)
-            console.log('Background sections loaded:', {
+            console.log('Background scrolling FIXED (bottom-to-top reveal):', {
                 totalSections: this.backgroundTiles.length,
                 activeSections: this.backgroundTiles.filter(tile => tile && tile.active).length,
                 playerAltitude: Math.round(playerAltitude),
-                backgroundProgress: Math.round(backgroundProgress * 100) + '%'
+                backgroundProgress: Math.round(backgroundProgress * 100) + '%',
+                cameraY: Math.round(cameraY),
+                groundLevel: this.groundLevel,
+                bottomTileY: this.backgroundTiles[0] ? Math.round(this.backgroundTiles[0].y) : 'N/A',
+                topTileY: this.backgroundTiles[this.backgroundTiles.length - 1] ? Math.round(this.backgroundTiles[this.backgroundTiles.length - 1].y) : 'N/A'
             });
         }
     }

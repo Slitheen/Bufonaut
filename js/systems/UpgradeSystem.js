@@ -36,14 +36,15 @@ export class UpgradeSystem {
                 name: 'Guidance Rocket',
                 assetKey: 'upgrade_rocket',
                 level: 0,
-                maxLevel: 3,
-                cost: 250, // Tier 1 cost
-                thrust: 8,
-                fuelCapacity: 63, // Tier 1 fuel capacity (increased by 25%)
-                canMoveUp: false, // Tier 1: only left/right
-                tier1Cost: 250,
-                tier2Cost: 400,
-                tier3Cost: 600
+                maxLevel: 10,
+                cost: 100, // Reduced initial cost
+                thrust: 6, // Base thrust
+                fuelCapacity: 50, // Base fuel capacity
+                fuelEfficiency: 1.0, // Base fuel efficiency (1.0 = normal consumption)
+                canMoveUp: false, // Unlocked at level 3
+                baseThrust: 6,
+                baseFuelCapacity: 50,
+                baseFuelEfficiency: 1.0
             }
         };
     }
@@ -63,7 +64,8 @@ export class UpgradeSystem {
                 hasRocket: false,
                 canMoveUp: false,
                 fuelCapacity: 0,
-                thrust: 0
+                thrust: 0,
+                fuelEfficiency: 1.0
             };
         }
         
@@ -72,6 +74,7 @@ export class UpgradeSystem {
             canMoveUp: rocket.canMoveUp,
             fuelCapacity: rocket.fuelCapacity,
             thrust: rocket.thrust,
+            fuelEfficiency: rocket.fuelEfficiency,
             level: rocket.level
         };
     }
@@ -82,6 +85,11 @@ export class UpgradeSystem {
             this.coins -= upgrade.cost;
             upgrade.level++;
 
+            // Update upgrade building indicator after spending coins
+            if (this.scene.uiSystem && this.scene.uiSystem.updateUpgradeBuildingIndicator) {
+                this.scene.uiSystem.updateUpgradeBuildingIndicator();
+            }
+
             if (key === 'rocket') {
                 // Handle tiered rocket upgrades
                 return this.handleRocketUpgrade(upgrade);
@@ -89,50 +97,58 @@ export class UpgradeSystem {
                 // This is a standard, multi-level upgrade
                 upgrade.cost = Math.floor(upgrade.cost * GAME_CONSTANTS.UPGRADES.COST_MULTIPLIER);
                 upgrade.power += upgrade.increment;
+                
+                // Return success result for non-rocket upgrades too
+                return {
+                    success: true,
+                    upgradeKey: key,
+                    newLevel: upgrade.level,
+                    newPower: upgrade.power,
+                    newCost: upgrade.cost
+                };
             }
         }
         return null;
     }
 
     handleRocketUpgrade(upgrade) {
-        switch (upgrade.level) {
-            case 1: // Tier 1: Basic left/right movement with small fuel tank
-                upgrade.cost = upgrade.tier2Cost; // Set cost for next tier
-                upgrade.fuelCapacity = 63; // Increased by 25% (was 50)
-                upgrade.canMoveUp = false;
-                upgrade.thrust = 8;
-                return { 
-                    maxFuel: upgrade.fuelCapacity, 
-                    fuel: upgrade.fuelCapacity, 
-                    texture: 'bufo_rocket',
-                    canMoveUp: false
-                };
-            
-            case 2: // Tier 2: Same functionality but larger fuel tank
-                upgrade.cost = upgrade.tier3Cost; // Set cost for next tier
-                upgrade.fuelCapacity = 188; // Increased by 25% (was 150)
-                upgrade.canMoveUp = false;
-                upgrade.thrust = 8;
-                return { 
-                    maxFuel: upgrade.fuelCapacity, 
-                    fuel: upgrade.fuelCapacity, 
-                    texture: 'bufo_rocket',
-                    canMoveUp: false
-                };
-            
-            case 3: // Tier 3: Full functionality with upward movement
-                upgrade.cost = 0; // Max level reached
-                upgrade.fuelCapacity = 250; // Increased by 25% (was 200)
-                upgrade.canMoveUp = true;
-                upgrade.thrust = 10;
-                return { 
-                    maxFuel: upgrade.fuelCapacity, 
-                    fuel: upgrade.fuelCapacity, 
-                    texture: 'bufo_rocket',
-                    canMoveUp: true
-                };
+        // Calculate progressive improvements for each level
+        const level = upgrade.level;
+        
+        // Progressive cost scaling (slower than standard upgrades)
+        const costs = [0, 100, 150, 200, 275, 350, 450, 575, 725, 900, 0]; // Level 10 = max
+        
+        // Progressive thrust improvements
+        const baseThrust = upgrade.baseThrust;
+        upgrade.thrust = baseThrust + (level * 2); // +2 thrust per level
+        
+        // Progressive fuel capacity improvements  
+        const baseFuel = upgrade.baseFuelCapacity;
+        upgrade.fuelCapacity = baseFuel + (level * 20); // +20 fuel per level
+        
+        // Progressive fuel efficiency improvements (lower consumption)
+        const baseFuelEff = upgrade.baseFuelEfficiency;
+        upgrade.fuelEfficiency = baseFuelEff - (level * 0.08); // -8% consumption per level
+        
+        // Unlock upward movement at level 3
+        upgrade.canMoveUp = level >= 3;
+        
+        // Set cost for next level
+        if (level < upgrade.maxLevel) {
+            upgrade.cost = costs[level + 1];
+        } else {
+            upgrade.cost = 0; // Max level reached
         }
-        return null;
+        
+        // Return rocket configuration for this level
+        return { 
+            maxFuel: upgrade.fuelCapacity, 
+            fuel: upgrade.fuelCapacity, 
+            texture: 'bufo_rocket',
+            canMoveUp: upgrade.canMoveUp,
+            thrust: upgrade.thrust,
+            fuelEfficiency: upgrade.fuelEfficiency
+        };
     }
 
     areAllUpgradesMaxed() {
@@ -147,6 +163,12 @@ export class UpgradeSystem {
 
     addCoins(amount) {
         this.coins += amount;
+        
+        // Update upgrade building indicator if UI system exists
+        if (this.scene.uiSystem && this.scene.uiSystem.updateUpgradeBuildingIndicator) {
+            this.scene.uiSystem.updateUpgradeBuildingIndicator();
+        }
+        
         return this.coins;
     }
 
