@@ -169,6 +169,9 @@ export class CollisionSystem {
         const spatialDistance = Math.abs(player.y - balloon.y);
         const maxCollisionDistance = (balloon.height + player.height) * 0.6; // Allow some overlap
         
+        // Debug log spatial validation values
+        this.debugLog(`Spatial validation: PlayerY: ${player.y.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}, MaxDistance: ${maxCollisionDistance.toFixed(1)}, BalloonHeight: ${balloon.height}, PlayerHeight: ${player.height}`, 'balloon_spatial_debug');
+        
         if (spatialDistance > maxCollisionDistance) {
             // Player is too far from balloon for a real collision - treat as pass-through
             this.debugLog(`Balloon collision rejected - too far apart: PlayerY: ${player.y.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}`, 'balloon_false_collision');
@@ -266,6 +269,9 @@ export class CollisionSystem {
         // Spatial validation: Check if collision makes sense
         const spatialDistance = Math.abs(player.y - bird.y);
         const maxCollisionDistance = (bird.height + player.height) * 0.6; // Allow some overlap
+        
+        // Debug log spatial validation values
+        this.debugLog(`Spatial validation: PlayerY: ${player.y.toFixed(1)}, BirdY: ${bird.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}, MaxDistance: ${maxCollisionDistance.toFixed(1)}, BirdHeight: ${bird.height}, PlayerHeight: ${player.height}`, 'bird_spatial_debug');
         
         if (spatialDistance > maxCollisionDistance) {
             // Player is too far from bird for a real collision - treat as pass-through
