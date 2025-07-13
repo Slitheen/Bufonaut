@@ -48,9 +48,9 @@ export class CollisionSystem {
                 verticalRadius: 50    // Vertical collision radius
             },
             coin: {
-                maxDistance: 40,      // Small collision area for coins
-                horizontalRadius: 25, // Horizontal collision radius
-                verticalRadius: 25    // Vertical collision radius
+                maxDistance: 70,      // Increased collision area for coins (easier pickup)
+                horizontalRadius: 45, // Increased horizontal collision radius
+                verticalRadius: 45    // Increased vertical collision radius
             },
             gasTank: {
                 maxDistance: 50,      // Medium collision area for gas tanks

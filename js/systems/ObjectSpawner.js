@@ -506,8 +506,8 @@ export class ObjectSpawner {
         for (const boundary of zoneBoundaries) {
             const distanceToBoundary = Math.abs(playerAltitude - boundary.boundary);
             
-            // Only pre-spawn when very close to boundary (reduced from transitionDistance)
-            if (distanceToBoundary < 500) { // Reduced from transitionDistance (2000) to 500
+            // Pre-spawn when approaching boundary (increased for earlier spawning)
+            if (distanceToBoundary < 1500) { // Increased from 500 to 1500 for earlier spawning
                 // Player is approaching a zone boundary
                 const targetZone = boundary.zone;
                 
@@ -515,12 +515,12 @@ export class ObjectSpawner {
                     console.log(`Zone buffering: Pre-spawning objects for ${targetZone} (distance to boundary: ${distanceToBoundary} ft)`);
                     this.zoneBuffer.adjacent.add(targetZone);
                     
-                    // Pre-spawn fewer objects to reduce flickering
-                    let preloadCount = 3; // Reduced from 10 to 3
+                    // Increase pre-spawn count for better object availability
+                    let preloadCount = 8; // Increased from 3 to 8
                     
                     // Extra preloading for mid and high altitude zones (player's main range)
                     if (targetZone === 'Mid Altitude' || targetZone === 'High Altitude' || targetZone === 'Space') {
-                        preloadCount = 5; // Reduced from 15 to 5
+                        preloadCount = 12; // Increased from 5 to 12
                         console.log(`Enhanced preloading for ${targetZone}: ${preloadCount} objects`);
                     }
                     
@@ -537,8 +537,8 @@ export class ObjectSpawner {
     }
 
     preSpawnZoneObjects(zoneName, count) {
-        // Pre-spawn a small number of objects for the target zone
-        const maxObjects = Math.min(count, 5);
+        // Pre-spawn objects for the target zone with increased capacity
+        const maxObjects = Math.min(count, 15); // Increased from 5 to 15
         
         switch (zoneName) {
             case 'Ground Level':
@@ -618,31 +618,31 @@ export class ObjectSpawner {
     }
 
     checkHighAltitudePreloading(playerAltitude) {
-        // Adjusted preloading for the new zone boundaries
-        if (playerAltitude >= 4500 && playerAltitude < 5000) {
-            // Preload mid altitude objects when approaching mid altitude zone
+        // Enhanced preloading with earlier triggers and more objects
+        if (playerAltitude >= 3500 && playerAltitude < 5000) {
+            // Preload mid altitude objects earlier when approaching mid altitude zone
             if (!this.zoneBuffer.adjacent.has('Mid Altitude')) {
                 console.log(`Early preloading: Mid Altitude objects (player at ${playerAltitude} ft)`);
                 this.zoneBuffer.adjacent.add('Mid Altitude');
-                this.preSpawnZoneObjects('Mid Altitude', 4); // Increased for player's main range
+                this.preSpawnZoneObjects('Mid Altitude', 10); // Increased from 4 to 10
             }
         }
         
-        if (playerAltitude >= 9500 && playerAltitude < 10000) {
-            // Preload high altitude objects when approaching high altitude zone
+        if (playerAltitude >= 8000 && playerAltitude < 10000) {
+            // Preload high altitude objects earlier when approaching high altitude zone
             if (!this.zoneBuffer.adjacent.has('High Altitude')) {
                 console.log(`Early preloading: High Altitude objects (player at ${playerAltitude} ft)`);
                 this.zoneBuffer.adjacent.add('High Altitude');
-                this.preSpawnZoneObjects('High Altitude', 4); // Increased for player's reachable range
+                this.preSpawnZoneObjects('High Altitude', 10); // Increased from 4 to 10
             }
         }
         
-        if (playerAltitude >= 14500 && playerAltitude < 15000) {
-            // Preload space objects when very close to space boundary
+        if (playerAltitude >= 12000 && playerAltitude < 15000) {
+            // Preload space objects earlier when approaching space boundary
             if (!this.zoneBuffer.adjacent.has('Space')) {
                 console.log(`Early preloading: Space objects (player at ${playerAltitude} ft)`);
                 this.zoneBuffer.adjacent.add('Space');
-                this.preSpawnZoneObjects('Space', 3); // Reduced since less reachable
+                this.preSpawnZoneObjects('Space', 8); // Increased from 3 to 8
             }
         }
         
@@ -921,7 +921,31 @@ export class ObjectSpawner {
         balloon.setRotation(0);
         balloon.setAlpha(1);
 
-        const x = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        // Improved positioning: spawn balloons ahead of player trajectory
+        let x;
+        if (this.scene.player && this.scene.isAirborne) {
+            // If player is airborne, consider their horizontal velocity for predictive spawning
+            const playerVelX = this.scene.player.body.velocity.x;
+            const baseX = this.scene.player.x;
+            
+            // Spawn objects in a wider area ahead of player's movement
+            if (Math.abs(playerVelX) > 50) { // Player has significant horizontal movement
+                const ahead = playerVelX > 0 ? 200 : -200; // Spawn ahead in movement direction
+                x = Phaser.Math.Between(
+                    Math.max(50, baseX + ahead - 150), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + ahead + 150)
+                );
+            } else {
+                // No significant movement, spawn around player
+                x = Phaser.Math.Between(
+                    Math.max(50, baseX - 200), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + 200)
+                );
+            }
+        } else {
+            // Default random positioning
+            x = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        }
         
         // Position based on texture type using updated zone boundaries
         let minY, maxY;
@@ -1034,7 +1058,31 @@ export class ObjectSpawner {
         bird.setRotation(0);
         bird.setAlpha(1);
 
-        const birdX = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        // Improved positioning: spawn birds ahead of player trajectory
+        let birdX;
+        if (this.scene.player && this.scene.isAirborne) {
+            // If player is airborne, consider their horizontal velocity for predictive spawning
+            const playerVelX = this.scene.player.body.velocity.x;
+            const baseX = this.scene.player.x;
+            
+            // Spawn objects in a wider area ahead of player's movement
+            if (Math.abs(playerVelX) > 50) { // Player has significant horizontal movement
+                const ahead = playerVelX > 0 ? 200 : -200; // Spawn ahead in movement direction
+                birdX = Phaser.Math.Between(
+                    Math.max(50, baseX + ahead - 150), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + ahead + 150)
+                );
+            } else {
+                // No significant movement, spawn around player
+                birdX = Phaser.Math.Between(
+                    Math.max(50, baseX - 200), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + 200)
+                );
+            }
+        } else {
+            // Default random positioning
+            birdX = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        }
         
         // Position based on texture type using updated zone boundaries
         let minY, maxY;
@@ -1161,7 +1209,31 @@ export class ObjectSpawner {
         coin.setRotation(0);
         coin.setAlpha(1);
 
-        const x = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        // Improved positioning: spawn coins ahead of player trajectory
+        let x;
+        if (this.scene.player && this.scene.isAirborne) {
+            // If player is airborne, consider their horizontal velocity for predictive spawning
+            const playerVelX = this.scene.player.body.velocity.x;
+            const baseX = this.scene.player.x;
+            
+            // Spawn objects in a wider area ahead of player's movement
+            if (Math.abs(playerVelX) > 50) { // Player has significant horizontal movement
+                const ahead = playerVelX > 0 ? 200 : -200; // Spawn ahead in movement direction
+                x = Phaser.Math.Between(
+                    Math.max(50, baseX + ahead - 150), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + ahead + 150)
+                );
+            } else {
+                // No significant movement, spawn around player
+                x = Phaser.Math.Between(
+                    Math.max(50, baseX - 200), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + 200)
+                );
+            }
+        } else {
+            // Default random positioning
+            x = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        }
         // Constrain coin positioning to prevent rapid vertical movements
         // Coins should spawn in a reasonable altitude range (1000-8000 ft)
         const groundLevel = this.scene.groundLevel;
@@ -1210,7 +1282,31 @@ export class ObjectSpawner {
         gasTank.setRotation(0);
         gasTank.setAlpha(1);
 
-        const x = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        // Improved positioning: spawn gas tanks ahead of player trajectory
+        let x;
+        if (this.scene.player && this.scene.isAirborne) {
+            // If player is airborne, consider their horizontal velocity for predictive spawning
+            const playerVelX = this.scene.player.body.velocity.x;
+            const baseX = this.scene.player.x;
+            
+            // Spawn objects in a wider area ahead of player's movement
+            if (Math.abs(playerVelX) > 50) { // Player has significant horizontal movement
+                const ahead = playerVelX > 0 ? 200 : -200; // Spawn ahead in movement direction
+                x = Phaser.Math.Between(
+                    Math.max(50, baseX + ahead - 150), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + ahead + 150)
+                );
+            } else {
+                // No significant movement, spawn around player
+                x = Phaser.Math.Between(
+                    Math.max(50, baseX - 200), 
+                    Math.min(this.scene.cameras.main.width - 50, baseX + 200)
+                );
+            }
+        } else {
+            // Default random positioning
+            x = Phaser.Math.Between(50, this.scene.cameras.main.width - 50);
+        }
         // Constrain gas tank positioning to prevent rapid vertical movements
         // Gas tanks should spawn in a reasonable altitude range (2000-10000 ft)
         const groundLevel = this.scene.groundLevel;
