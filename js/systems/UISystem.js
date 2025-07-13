@@ -2057,6 +2057,9 @@ export class UISystem {
         
         // Set up responsive handling
         this.setupResponsiveHandling();
+        
+        // Update button colors based on current coin balance
+        this.updateUpgradeShop();
     }
     
     createModernHeader(panelWidth, panelHeight) {
@@ -2299,12 +2302,12 @@ export class UISystem {
         let buttonText = 'BUY';
         
         if (isMaxed) {
-            buttonColor = 0x28a745; // Green for maxed out
+            buttonColor = 0x30f32d; // Green for maxed out
             buttonText = 'MAX';
         } else if (canAfford) {
-            buttonColor = 0x28a745; // Bright green when affordable
+            buttonColor = 0x30f32d; // Bright green when affordable
         } else {
-            buttonColor = 0xdc3545; // Red when not affordable
+            buttonColor = 0xf81324; // Red when not affordable
         }
         
         buttonBg.fillStyle(buttonColor, 1);
@@ -2683,12 +2686,12 @@ export class UISystem {
         let buttonText = 'BUY';
         
         if (isMaxed) {
-            buttonColor = 0x28a745; // Green for maxed out
+            buttonColor = 0x30f32d; // Green for maxed out
             buttonText = 'MAX';
         } else if (canAfford) {
-            buttonColor = 0x28a745; // Bright green when affordable
+            buttonColor = 0x30f32d; // Bright green when affordable
         } else {
-            buttonColor = 0xdc3545; // Red when not affordable
+            buttonColor = 0xf81324; // Red when not affordable
         }
         
         buttonBg.fillStyle(buttonColor, 1);
