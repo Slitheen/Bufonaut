@@ -28,8 +28,8 @@ export const GAME_CONSTANTS = {
         CLOUD_COUNT: 8,
         COIN_COUNT: 20,
         GAS_TANK_COUNT: 4,
-        BALLOON_BOOST: -240, // Changed from -120 to -240 for stronger boost
-        BIRD_BOOST: -240, // Changed from -80 to -240 for stronger boost
+        BALLOON_BOOST: -400, // Increased for better velocity gains
+        BIRD_BOOST: -400, // Increased for better velocity gains
         CLOUD_SLOWDOWN: 0.7,
     },
     REWARDS: {

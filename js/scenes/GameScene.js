@@ -887,9 +887,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     createSeamlessBackground() {
-        // Create the seamless background with correct bottom-to-top reveal
+        // Create a single stretched background that covers the entire world height
         this.worldBackground = this.add.image(0, 0, 'world_background');
-        this.worldBackground.setOrigin(0, 1); // FIXED: Origin at bottom-left instead of top-left
+        this.worldBackground.setOrigin(0, 1); // Origin at bottom-left
         this.worldBackground.setDepth(-1000); // Behind everything
         
         // Get the actual background image dimensions
@@ -898,66 +898,40 @@ export class GameScene extends Phaser.Scene {
         const screenWidth = this.cameras.main.width;
         const screenHeight = this.cameras.main.height;
         
-        // Scale the background to fit the screen width while maintaining aspect ratio
-        const scaleX = screenWidth / bgWidth;
-        this.worldBackground.setScale(scaleX, scaleX);
-        
-        // Calculate the total world height we need to cover
+        // Calculate the total world height we need to cover (51,000 feet)
         const worldHeight = Math.abs(GAME_CONSTANTS.WORLD_TOP) + screenHeight;
-        
-        // If the background is shorter than the world height, we need to repeat it
-        const scaledBgHeight = bgHeight * scaleX;
-        const repeatCount = Math.ceil(worldHeight / scaledBgHeight);
-        
-        // Create background sections from bottom to top for correct reveal
-        this.backgroundTiles = [];
-        
-        // FIXED: Position the bottom of the PNG at ground level
-        // The bottom of the PNG should be visible at ground level (altitude 0)
         const groundLevelY = this.groundLevel;
         
-        // Create bottom section first (ground/launch area) - this shows bottom of PNG
-        const bottomTile = this.add.image(0, groundLevelY, 'world_background');
-        bottomTile.setOrigin(0, 1); // Origin at bottom-left
-        bottomTile.setScale(scaleX, scaleX);
-        bottomTile.setDepth(-1000);
-        this.backgroundTiles.push(bottomTile);
+        // Scale the background to fit the screen width
+        const scaleX = screenWidth / bgWidth;
+        // Scale the background vertically to cover the entire world height (stretch it)
+        const scaleY = worldHeight / bgHeight;
         
-        // Create additional tiles going UPWARD (negative Y) to show top portions of PNG
-        for (let i = 1; i < repeatCount; i++) {
-            const tile = this.add.image(0, groundLevelY - (i * scaledBgHeight), 'world_background');
-            tile.setOrigin(0, 1); // Origin at bottom-left
-            tile.setScale(scaleX, scaleX);
-            tile.setDepth(-1000);
-            
-            // Set full alpha immediately - no fade in effect
-            tile.setAlpha(1);
-            
-            this.backgroundTiles.push(tile);
-            console.log(`Background section ${i + 1}/${repeatCount} loaded and positioned at Y: ${groundLevelY - (i * scaledBgHeight)}`);
-        }
+        // Position the background so its bottom is at ground level and top reaches world top
+        this.worldBackground.setPosition(0, groundLevelY);
+        this.worldBackground.setScale(scaleX, scaleY);
         
-        // Store the initial background positioning
-        this.initialBackgroundY = groundLevelY;
+        // Store single background for updates (no more tiles array)
+        this.backgroundTiles = [this.worldBackground]; // Keep for compatibility with update method
         
-        console.log('Background loading fixed (bottom-to-top reveal):', {
+        console.log('Background stretched to cover full world height:', {
             originalWidth: bgWidth,
             originalHeight: bgHeight,
             screenWidth: screenWidth,
             screenHeight: screenHeight,
-            scaleX: scaleX,
-            scaledBgHeight: scaledBgHeight,
             worldHeight: worldHeight,
-            repeatCount: repeatCount,
+            scaleX: scaleX,
+            scaleY: scaleY,
             groundLevel: this.groundLevel,
             groundLevelY: groundLevelY,
-            bottomTileY: groundLevelY,
-            topTileY: groundLevelY - ((repeatCount - 1) * scaledBgHeight)
+            backgroundTopY: groundLevelY - worldHeight,
+            stretchedWidth: bgWidth * scaleX,
+            stretchedHeight: bgHeight * scaleY
         });
     }
 
     updateSeamlessBackground() {
-        if (!this.backgroundTiles || !this.player) return;
+        if (!this.worldBackground || !this.player) return;
         
         // Calculate the background position based on player altitude
         const playerAltitude = this.groundLevel - this.player.y;
@@ -965,45 +939,31 @@ export class GameScene extends Phaser.Scene {
         
         // Calculate what portion of the background should be visible (0 = bottom of PNG, 1 = top of PNG)
         const backgroundProgress = Math.max(0, Math.min(1, playerAltitude / maxAltitude));
-        const screenHeight = this.cameras.main.height;
-        const scaledBgHeight = this.worldBackground.height * this.worldBackground.scaleX;
         
-        // FIXED: Simplified scrolling logic since tiles are now positioned correctly
-        // At ground level (altitude 0): Bottom PNG is visible, tiles stay at original positions
-        // As altitude increases: Background moves with camera to reveal higher portions
+        // With the stretched background, it moves naturally with the world coordinates
+        // The background is positioned at groundLevel and stretches up to cover the full world height
+        // No special positioning needed - it moves naturally with the camera
         
-        // The background tiles are now positioned correctly from the start:
-        // - Bottom tile at groundLevel (shows bottom of PNG)
-        // - Higher tiles at increasingly negative Y positions (show top portions)
-        // They should move naturally with the camera without complex calculations
-        
-        // Calculate camera-relative positioning
         const cameraY = this.cameras.main.scrollY;
-        const baseGroundY = this.groundLevel;
+        const groundLevelY = this.groundLevel;
         
-        // Update each tile position relative to camera movement
-        this.backgroundTiles.forEach((tile, index) => {
-            if (tile && tile.active) {
-                // Each tile should maintain its relative position to ground level
-                // Tile 0 is at groundLevel, Tile 1 is one tile height above, etc.
-                const tileBaseY = baseGroundY - (index * scaledBgHeight);
-                
-                // Keep tiles in their correct positions - they move naturally with world coordinates
-                tile.y = tileBaseY;
-            }
-        });
+        // The stretched background maintains its position relative to the world
+        // It stays at groundLevel and moves naturally with the camera
+        this.worldBackground.y = groundLevelY;
         
         // Debug scrolling
         if (this.time.now % 120 === 0) { // Log every 120 frames (2 seconds at 60fps)
-            console.log('Background scrolling FIXED (bottom-to-top reveal):', {
-                totalSections: this.backgroundTiles.length,
-                activeSections: this.backgroundTiles.filter(tile => tile && tile.active).length,
+            console.log('Stretched background scrolling:', {
                 playerAltitude: Math.round(playerAltitude),
+                maxAltitude: maxAltitude,
                 backgroundProgress: Math.round(backgroundProgress * 100) + '%',
                 cameraY: Math.round(cameraY),
                 groundLevel: this.groundLevel,
-                bottomTileY: this.backgroundTiles[0] ? Math.round(this.backgroundTiles[0].y) : 'N/A',
-                topTileY: this.backgroundTiles[this.backgroundTiles.length - 1] ? Math.round(this.backgroundTiles[this.backgroundTiles.length - 1].y) : 'N/A'
+                backgroundY: Math.round(this.worldBackground.y),
+                backgroundScale: {
+                    x: this.worldBackground.scaleX,
+                    y: this.worldBackground.scaleY
+                }
             });
         }
     }

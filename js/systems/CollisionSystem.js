@@ -209,12 +209,9 @@ export class CollisionSystem {
         balloon.setActive(false).setVisible(false);
         balloon.body.enable = false;
         
-        // Only apply physics when falling down (not when flying up)
-        if (player.body.velocity.y < 0) {
-            // Pass through when flying upward - delete asset but no velocity change
-            this.debugLog(`Balloon passed through while flying upward - deleted but no velocity change`, 'balloon_pass_through_up');
-            return;
-        }
+        // Apply velocity boost regardless of current direction for consistent gameplay
+        const isMovingUp = player.body.velocity.y < 0;
+        const isMovingDown = player.body.velocity.y > 0;
         
         // Store original velocity for comparison
         const originalVelocityY = player.body.velocity.y;
@@ -222,56 +219,57 @@ export class CollisionSystem {
         
         // Use tighter collision zones for more precise positioning
         const bounds = this.collisionBounds.balloon;
-        const balloonTopY = balloon.y - (balloon.height * bounds.topZone); // Top 20% of balloon (tighter)
-        const balloonBottomY = balloon.y + (balloon.height * bounds.bottomZone); // Bottom 40% of balloon (tighter)
-        const isOnTop = player.y < balloonTopY; // Bufo is in the top area
-        const isMovingDown = player.body.velocity.y > 0; // Any downward movement
+        const balloonTopY = balloon.y - (balloon.height * bounds.topZone);
+        const balloonBottomY = balloon.y + (balloon.height * bounds.bottomZone);
+        const isOnTop = player.y < balloonTopY;
         
-        if (isMovingDown) {
-            // Landing on balloon - give bounce based on position
-            // Check if player's velocity is already very negative (recently bounced)
-            const currentVelY = player.body.velocity.y;
-            
-            if (isOnTop) {
-                // Direct top hit - strongest bounce
-                if (currentVelY < -300) {
-                    this.safeVelocityChange(player, 
-                        player.body.velocity.x * 0.98, // Maintain almost all horizontal momentum
-                        Math.max(currentVelY, -500) // Strong bounce even with existing upward velocity
-                    );
-                    this.debugLog(`Balloon bounce reduced due to existing upward velocity: ${currentVelY.toFixed(1)}`, 'balloon_reduced_bounce');
-                } else {
-                    this.safeVelocityChange(player, 
-                        player.body.velocity.x * 0.95, // Maintain more horizontal momentum
-                        -600 // Strong upward bounce for 4-6 Bufo heights (doubled from -300)
-                    );
-                    this.debugLog(`Balloon top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_bounce');
-                }
+        // Get base boost value from config (make it stronger for better gameplay)
+        const baseBoost = GAME_CONSTANTS.OBSTACLES.BALLOON_BOOST * 2.5; // Multiply by 2.5 for better boost
+        const currentVelY = player.body.velocity.y;
+        
+        // Apply velocity boost based on position and current velocity
+        if (isOnTop) {
+            // Direct top hit - strongest bounce
+            if (isMovingUp && currentVelY < -100) {
+                // Already moving up - add to existing upward velocity
+                const additionalBoost = baseBoost * 0.8; // 80% of base boost when already moving up
+                this.safeVelocityChange(player, 
+                    player.body.velocity.x * 0.98, // Maintain horizontal momentum
+                    currentVelY + additionalBoost // Add to existing upward velocity
+                );
+                this.debugLog(`Balloon top hit while moving up! Additional boost: ${additionalBoost.toFixed(1)}`, 'balloon_boost_up');
             } else {
-                // Side/bottom collision - moderate bounce
-                if (currentVelY < -300) {
-                    this.safeVelocityChange(player, 
-                        player.body.velocity.x * 0.98, // Maintain almost all horizontal momentum
-                        Math.max(currentVelY, -400) // Moderate bounce even with existing upward velocity
-                    );
-                    this.debugLog(`Balloon side bounce reduced due to existing upward velocity: ${currentVelY.toFixed(1)}`, 'balloon_side_reduced_bounce');
-                } else {
-                    this.safeVelocityChange(player, 
-                        player.body.velocity.x * 0.95, // Maintain more horizontal momentum
-                        -450 // Moderate upward bounce for side/bottom collision
-                    );
-                    this.debugLog(`Balloon side hit! Moderate bounce applied - PlayerY: ${player.y.toFixed(1)}, BalloonTopY: ${balloonTopY.toFixed(1)}`, 'balloon_side_bounce');
-                }
+                // Moving down or slow - full bounce
+                this.safeVelocityChange(player, 
+                    player.body.velocity.x * 0.95, // Maintain horizontal momentum
+                    baseBoost * 1.2 // 120% of base boost for top hits
+                );
+                this.debugLog(`Balloon top hit! Full bounce applied: ${(baseBoost * 1.2).toFixed(1)}`, 'balloon_bounce');
             }
-            
-            // Add bounce visual effect
-            this.addBounceEffect(player.x, player.y);
-            
-            this.debugLog(`Balloon hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'balloon_hit');
         } else {
-            // When flying upward, pass through (no interaction)
-            this.debugLog(`Balloon passed through while flying upward - deleted but no velocity change`, 'balloon_pass_through_up');
+            // Side/bottom collision - moderate bounce
+            if (isMovingUp && currentVelY < -100) {
+                // Already moving up - smaller additional boost
+                const additionalBoost = baseBoost * 0.6; // 60% of base boost when already moving up
+                this.safeVelocityChange(player, 
+                    player.body.velocity.x * 0.98, // Maintain horizontal momentum
+                    currentVelY + additionalBoost // Add to existing upward velocity
+                );
+                this.debugLog(`Balloon side hit while moving up! Additional boost: ${additionalBoost.toFixed(1)}`, 'balloon_side_boost_up');
+            } else {
+                // Moving down or slow - moderate bounce
+                this.safeVelocityChange(player, 
+                    player.body.velocity.x * 0.95, // Maintain horizontal momentum
+                    baseBoost // Base boost for side/bottom hits
+                );
+                this.debugLog(`Balloon side hit! Moderate bounce applied: ${baseBoost.toFixed(1)}`, 'balloon_side_bounce');
+            }
         }
+        
+        // Add bounce visual effect
+        this.addBounceEffect(player.x, player.y);
+        
+        this.debugLog(`Balloon hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'balloon_hit');
     }
 
     hitBird(player, bird) {
@@ -304,12 +302,9 @@ export class CollisionSystem {
         bird.setActive(false).setVisible(false);
         bird.body.enable = false;
         
-        // Only apply physics when falling down (not when flying up)
-        if (player.body.velocity.y < 0) {
-            // Pass through when flying upward - delete asset but no velocity change
-            this.debugLog(`Bird passed through while flying upward - deleted but no velocity change`, 'bird_pass_through_up');
-            return;
-        }
+        // Apply velocity boost regardless of current direction for consistent gameplay
+        const isMovingUp = player.body.velocity.y < 0;
+        const isMovingDown = player.body.velocity.y > 0;
         
         // Store original velocity for comparison
         const originalVelocityY = player.body.velocity.y;
@@ -317,56 +312,57 @@ export class CollisionSystem {
         
         // Use tighter collision zones for more precise positioning
         const bounds = this.collisionBounds.bird;
-        const birdTopY = bird.y - (bird.height * bounds.topZone); // Top 25% of bird (tighter)
-        const birdBottomY = bird.y + (bird.height * bounds.bottomZone); // Bottom 35% of bird (tighter)
-        const isOnTop = player.y < birdTopY; // Bufo is in the top area
-        const isMovingDown = player.body.velocity.y > 0; // Any downward movement
+        const birdTopY = bird.y - (bird.height * bounds.topZone);
+        const birdBottomY = bird.y + (bird.height * bounds.bottomZone);
+        const isOnTop = player.y < birdTopY;
         
-        if (isMovingDown) {
-            // Landing on bird - give bounce based on position
-            // Check if player's velocity is already very negative (recently bounced)
-            const currentVelY = player.body.velocity.y;
-            
-            if (isOnTop) {
-                // Direct top hit - strongest bounce
-                if (currentVelY < -300) {
-                    this.safeVelocityChange(player,
-                        player.body.velocity.x * 0.98, // Maintain almost all horizontal momentum
-                        Math.max(currentVelY, -540) // Strong bounce even with existing upward velocity
-                    );
-                    this.debugLog(`Bird bounce reduced due to existing upward velocity: ${currentVelY.toFixed(1)}`, 'bird_reduced_bounce');
-                } else {
-                    this.safeVelocityChange(player,
-                        player.body.velocity.x * 0.95, // Maintain more horizontal momentum
-                        -640 // Strong upward bounce for 5-7 Bufo heights (doubled from -320)
-                    );
-                    this.debugLog(`Bird top hit! Strong bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_bounce');
-                }
+        // Get base boost value from config (make it stronger for better gameplay)
+        const baseBoost = GAME_CONSTANTS.OBSTACLES.BIRD_BOOST * 2.5; // Multiply by 2.5 for better boost
+        const currentVelY = player.body.velocity.y;
+        
+        // Apply velocity boost based on position and current velocity
+        if (isOnTop) {
+            // Direct top hit - strongest bounce
+            if (isMovingUp && currentVelY < -100) {
+                // Already moving up - add to existing upward velocity
+                const additionalBoost = baseBoost * 0.8; // 80% of base boost when already moving up
+                this.safeVelocityChange(player,
+                    player.body.velocity.x * 0.98, // Maintain horizontal momentum
+                    currentVelY + additionalBoost // Add to existing upward velocity
+                );
+                this.debugLog(`Bird top hit while moving up! Additional boost: ${additionalBoost.toFixed(1)}`, 'bird_boost_up');
             } else {
-                // Side/bottom collision - moderate bounce
-                if (currentVelY < -300) {
-                    this.safeVelocityChange(player,
-                        player.body.velocity.x * 0.98, // Maintain almost all horizontal momentum
-                        Math.max(currentVelY, -480) // Moderate bounce even with existing upward velocity
-                    );
-                    this.debugLog(`Bird side bounce reduced due to existing upward velocity: ${currentVelY.toFixed(1)}`, 'bird_side_reduced_bounce');
-                } else {
-                    this.safeVelocityChange(player,
-                        player.body.velocity.x * 0.95, // Maintain more horizontal momentum
-                        -520 // Moderate upward bounce for side/bottom collision
-                    );
-                    this.debugLog(`Bird side hit! Moderate bounce applied - PlayerY: ${player.y.toFixed(1)}, BirdTopY: ${birdTopY.toFixed(1)}`, 'bird_side_bounce');
-                }
+                // Moving down or slow - full bounce
+                this.safeVelocityChange(player,
+                    player.body.velocity.x * 0.95, // Maintain horizontal momentum
+                    baseBoost * 1.2 // 120% of base boost for top hits
+                );
+                this.debugLog(`Bird top hit! Full bounce applied: ${(baseBoost * 1.2).toFixed(1)}`, 'bird_bounce');
             }
-            
-            // Add bounce visual effect
-            this.addBounceEffect(player.x, player.y);
-            
-            this.debugLog(`Bird hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'bird_hit');
         } else {
-            // When flying upward, pass through (no interaction)
-            this.debugLog(`Bird passed through while flying upward - deleted but no velocity change`, 'bird_pass_through_up');
+            // Side/bottom collision - moderate bounce
+            if (isMovingUp && currentVelY < -100) {
+                // Already moving up - smaller additional boost
+                const additionalBoost = baseBoost * 0.6; // 60% of base boost when already moving up
+                this.safeVelocityChange(player,
+                    player.body.velocity.x * 0.98, // Maintain horizontal momentum
+                    currentVelY + additionalBoost // Add to existing upward velocity
+                );
+                this.debugLog(`Bird side hit while moving up! Additional boost: ${additionalBoost.toFixed(1)}`, 'bird_side_boost_up');
+            } else {
+                // Moving down or slow - moderate bounce
+                this.safeVelocityChange(player,
+                    player.body.velocity.x * 0.95, // Maintain horizontal momentum
+                    baseBoost // Base boost for side/bottom hits
+                );
+                this.debugLog(`Bird side hit! Moderate bounce applied: ${baseBoost.toFixed(1)}`, 'bird_side_bounce');
+            }
         }
+        
+        // Add bounce visual effect
+        this.addBounceEffect(player.x, player.y);
+        
+        this.debugLog(`Bird hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'bird_hit');
     }
 
     hitCloud(player, cloud) {
@@ -391,19 +387,17 @@ export class CollisionSystem {
         cloud.setActive(false).setVisible(false);
         cloud.body.enable = false;
         
-        // Only apply physics when falling down (not when flying up)
-        if (player.body.velocity.y < 0) {
-            // Pass through when flying upward - delete asset but no velocity change
-            this.debugLog(`Cloud passed through while flying upward - deleted but no velocity change`, 'cloud_pass_through_up');
-            return;
-        }
+        // Apply cloud slowdown effect regardless of direction for consistent gameplay
+        const slowdownFactor = GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
         
         // Slow down the player's momentum
-        player.body.velocity.x *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
-        player.body.velocity.y *= GAME_CONSTANTS.OBSTACLES.CLOUD_SLOWDOWN;
+        player.body.velocity.x *= slowdownFactor;
+        player.body.velocity.y *= slowdownFactor;
         
         // Add a visual effect to show the slowdown
         this.addSlowdownEffect(player.x, player.y);
+        
+        this.debugLog(`Cloud hit! Velocity reduced by ${((1 - slowdownFactor) * 100).toFixed(1)}%`, 'cloud_hit');
     }
 
     capPlayerVelocity(player) {
