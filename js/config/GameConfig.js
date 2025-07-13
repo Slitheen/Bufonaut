@@ -1,4 +1,6 @@
 // Game Configuration and Constants
+export const VERSION = '1.0.0';
+
 export const UI_THEME = {
     primary: '#4A90E2',      // Modern blue
     secondary: '#F5A623',    // Warm orange
