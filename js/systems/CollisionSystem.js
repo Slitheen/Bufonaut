@@ -167,7 +167,7 @@ export class CollisionSystem {
         
         // Spatial validation: Check if collision makes sense
         const spatialDistance = Math.abs(player.y - balloon.y);
-        const maxCollisionDistance = (balloon.height + player.height) * 0.6; // Allow some overlap
+        const maxCollisionDistance = 150; // Fixed reasonable collision distance (about 2x player height)
         
         // Debug log spatial validation values
         this.debugLog(`Spatial validation: PlayerY: ${player.y.toFixed(1)}, BalloonY: ${balloon.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}, MaxDistance: ${maxCollisionDistance.toFixed(1)}, BalloonHeight: ${balloon.height}, PlayerHeight: ${player.height}`, 'balloon_spatial_debug');
@@ -268,7 +268,7 @@ export class CollisionSystem {
         
         // Spatial validation: Check if collision makes sense
         const spatialDistance = Math.abs(player.y - bird.y);
-        const maxCollisionDistance = (bird.height + player.height) * 0.6; // Allow some overlap
+        const maxCollisionDistance = 150; // Fixed reasonable collision distance (about 2x player height)
         
         // Debug log spatial validation values
         this.debugLog(`Spatial validation: PlayerY: ${player.y.toFixed(1)}, BirdY: ${bird.y.toFixed(1)}, Distance: ${spatialDistance.toFixed(1)}, MaxDistance: ${maxCollisionDistance.toFixed(1)}, BirdHeight: ${bird.height}, PlayerHeight: ${player.height}`, 'bird_spatial_debug');
