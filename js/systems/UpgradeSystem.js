@@ -45,6 +45,16 @@ export class UpgradeSystem {
                 baseThrust: 6,
                 baseFuelCapacity: 50,
                 baseFuelEfficiency: 1.0
+            },
+            magnet: {
+                name: 'Magnetic Collector',
+                assetKey: 'Magnet',
+                level: 0,
+                maxLevel: 5,
+                cost: 50, // Starting cost
+                magneticRange: 0, // Base range (no attraction at level 0)
+                baseMagneticRange: 80, // Base range added per level
+                rangeIncrement: 30 // Additional range per level
             }
         };
     }
@@ -93,6 +103,9 @@ export class UpgradeSystem {
             if (key === 'rocket') {
                 // Handle tiered rocket upgrades
                 return this.handleRocketUpgrade(upgrade);
+            } else if (key === 'magnet') {
+                // Handle magnet upgrades
+                return this.handleMagnetUpgrade(upgrade);
             } else {
                 // This is a standard, multi-level upgrade
                 upgrade.cost = Math.floor(upgrade.cost * GAME_CONSTANTS.UPGRADES.COST_MULTIPLIER);
@@ -149,6 +162,39 @@ export class UpgradeSystem {
             thrust: upgrade.thrust,
             fuelEfficiency: upgrade.fuelEfficiency
         };
+    }
+
+    handleMagnetUpgrade(upgrade) {
+        // Increase cost for next level
+        upgrade.cost = Math.floor(upgrade.cost * GAME_CONSTANTS.UPGRADES.COST_MULTIPLIER);
+        
+        // Calculate new magnetic range based on level
+        // Level 0: 0 range, Level 1: 80 range, Level 2: 110 range, etc.
+        if (upgrade.level === 1) {
+            // First level unlocks magnetic attraction
+            upgrade.magneticRange = upgrade.baseMagneticRange;
+        } else {
+            // Subsequent levels add incremental range
+            upgrade.magneticRange = upgrade.baseMagneticRange + ((upgrade.level - 1) * upgrade.rangeIncrement);
+        }
+        
+        console.log(`Magnet upgraded to level ${upgrade.level}! Range: ${upgrade.magneticRange}px`);
+        
+        return {
+            success: true,
+            upgradeKey: 'magnet',
+            newLevel: upgrade.level,
+            newMagneticRange: upgrade.magneticRange,
+            newCost: upgrade.cost
+        };
+    }
+
+    hasMagnet() {
+        return this.upgrades.magnet.level > 0;
+    }
+
+    getMagnetRange() {
+        return this.upgrades.magnet.magneticRange || 0;
     }
 
     areAllUpgradesMaxed() {

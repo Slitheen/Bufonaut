@@ -634,6 +634,9 @@ export class UISystem {
                     this.scene.isAirborne = true;
                     this.scene.hasBeenLaunched = true; // Mark as properly launched
                     
+                    // Hide launch banner immediately when launching
+                    this.hideLaunchBanner();
+                    
                     // Start launch protection to prevent immediate collisions
                     this.scene.collisionSystem.startLaunchProtection(this.scene.player.y);
                     this.scene.launchTime = this.scene.time.now;
@@ -1215,173 +1218,162 @@ export class UISystem {
         });
     }
 
-    showLaunchReadyIndicator() {
-        // Hide any existing indicator first
-        this.hideLaunchReadyIndicators();
+    showLaunchBanner() {
+        // Hide any existing banner first
+        this.hideLaunchBanner();
         
-        // Create a prominent "Ready to Launch" indicator
-        const indicator = this.scene.add.container(this.scene.cameras.main.width / 2, this.scene.cameras.main.height / 2 - 100);
-        indicator.setDepth(2500);
+        // Check if upgrade shop is open - don't show banner if it is
+        if (this.upgradeShopContainer && this.upgradeShopContainer.visible) {
+            return;
+        }
         
-        // Store reference for later hiding
-        this.launchReadyIndicator = indicator;
+        // Create scrolling banner at bottom of screen
+        const bannerHeight = 40;
+        const bannerY = this.scene.cameras.main.height - bannerHeight;
+        
+        this.launchBanner = this.scene.add.container(0, bannerY);
+        this.launchBanner.setDepth(2500);
+        this.launchBanner.setScrollFactor(0); // Fixed to camera
         
         // Background
         const bg = this.scene.add.graphics();
-        bg.fillStyle(0x000000, 0.9);
-        bg.lineStyle(3, 0x4A90E2, 1);
-        bg.fillRoundedRect(-200, -80, 400, 160, 20);
-        bg.strokeRoundedRect(-200, -80, 400, 160, 20);
+        bg.fillStyle(0x4A90E2, 0.9);
+        bg.fillRect(0, 0, this.scene.cameras.main.width, bannerHeight);
         
-        // Main text
-        const readyText = this.scene.add.text(0, -30, 'READY TO LAUNCH', {
-            fontSize: '32px',
-            fill: '#4A90E2',
-            stroke: '#000',
-            strokeThickness: 3,
-            fontWeight: 'bold'
-        }).setOrigin(0.5);
+        // Gradient effect
+        const gradient = this.scene.add.graphics();
+        gradient.fillGradientStyle(0x7ED321, 0x4A90E2, 0x4A90E2, 0x7ED321, 0.3);
+        gradient.fillRect(0, 0, this.scene.cameras.main.width, bannerHeight);
         
-        // Instruction text
-        const instructionText = this.scene.add.text(0, 20, 'Pull and release to launch!', {
-            fontSize: '18px',
+        // Create scrolling text
+        const bannerText = 'READY TO LAUNCH! Pull and release to launch Bufo into the sky! ';
+        const textWidth = this.scene.cameras.main.width * 1.5; // Make text wider than screen
+        
+        this.bannerText = this.scene.add.text(this.scene.cameras.main.width, bannerHeight/2, bannerText, {
+            fontSize: '24px',
             fill: '#FFFFFF',
-            stroke: '#000',
-            strokeThickness: 2
-        }).setOrigin(0.5);
+            stroke: '#000000',
+            strokeThickness: 1, // Reduced from 2 to fix letter "E" rendering
+            fontWeight: 'bold',
+            fontFamily: 'Arial, sans-serif' // Explicit font family for better consistency
+        }).setOrigin(0, 0.5);
         
-        // Launch icon/arrow
-        const arrow = this.scene.add.graphics();
-        arrow.lineStyle(4, 0x7ED321, 1);
-        arrow.fillStyle(0x7ED321, 1);
-        // Draw upward arrow
-        arrow.lineBetween(0, 40, 0, 60);
-        arrow.fillTriangle(-8, 40, 8, 40, 0, 25);
+        // Add launch icon
+        const launchIcon = this.scene.add.graphics();
+        launchIcon.fillStyle(0xFFFFFF, 1);
+        launchIcon.fillTriangle(-8, 8, 8, 8, 0, -8);
+        launchIcon.x = this.scene.cameras.main.width + 20;
+        launchIcon.y = bannerHeight/2;
         
-        indicator.add([bg, readyText, instructionText, arrow]);
+        this.launchBanner.add([bg, gradient, this.bannerText, launchIcon]);
         
-        // Create launch area highlight
-        const launchHighlight = this.scene.add.graphics();
-        launchHighlight.setDepth(2499); // Just below the indicator
-        launchHighlight.lineStyle(4, 0x4A90E2, 0.8);
-        launchHighlight.strokeCircle(this.scene.player.x, this.scene.player.y, 150);
-        launchHighlight.lineStyle(2, 0x7ED321, 0.6);
-        launchHighlight.strokeCircle(this.scene.player.x, this.scene.player.y, 120);
-        
-        // Store reference for later hiding
-        this.launchHighlight = launchHighlight;
-        
-        // Animate the indicator
-        indicator.setAlpha(0);
-        indicator.setScale(0.8);
-        launchHighlight.setAlpha(0);
-        
-        this.scene.tweens.add({
-            targets: indicator,
-            alpha: 1,
-            scaleX: 1,
-            scaleY: 1,
-            duration: 500,
-            ease: 'Back.easeOut'
+        // Create scrolling animation
+        this.bannerScrollTween = this.scene.tweens.add({
+            targets: [this.bannerText, launchIcon],
+            x: '-=' + (this.scene.cameras.main.width + 300),
+            duration: 8000,
+            ease: 'Linear',
+            repeat: -1,
+            onRepeat: () => {
+                // Reset position for seamless loop
+                this.bannerText.x = this.scene.cameras.main.width;
+                launchIcon.x = this.scene.cameras.main.width + 20;
+            }
         });
         
+        // Fade in animation
+        this.launchBanner.setAlpha(0);
         this.scene.tweens.add({
-            targets: launchHighlight,
+            targets: this.launchBanner,
             alpha: 1,
             duration: 500,
             ease: 'Power2'
         });
         
-        // Pulsing animation for attention
-        this.scene.tweens.add({
-            targets: readyText,
-            scaleX: 1.1,
-            scaleY: 1.1,
-            duration: 800,
-            ease: 'Sine.easeInOut',
-            yoyo: true,
-            repeat: -1
-        });
+        // Hide when player starts pulling or becomes airborne
+        const hideOnInteraction = () => {
+            if (this.scene.isPulling || this.scene.isAirborne) {
+                this.hideLaunchBanner();
+                this.scene.input.off('pointerdown', hideOnInteraction);
+            }
+        };
+        this.scene.input.on('pointerdown', hideOnInteraction);
         
-        // Pulsing animation for launch area highlight
-        this.scene.tweens.add({
-            targets: launchHighlight,
-            scaleX: 1.1,
-            scaleY: 1.1,
-            alpha: 0.4,
-            duration: 1200,
-            ease: 'Sine.easeInOut',
-            yoyo: true,
-            repeat: -1
-        });
+        // Store reference to the event listener for cleanup
+        this.bannerHideListener = hideOnInteraction;
         
-        // Auto-hide after a few seconds
-        this.scene.time.delayedCall(4000, () => {
-            this.scene.tweens.add({
-                targets: [indicator, launchHighlight],
-                alpha: 0,
-                scaleX: 0.8,
-                scaleY: 0.8,
-                duration: 300,
-                ease: 'Power2',
-                onComplete: () => {
-                    indicator.destroy();
-                    launchHighlight.destroy();
-                }
-            });
-        });
-        
-        // Hide when player starts pulling
-        const hideOnPull = () => {
-            if (this.scene.isPulling) {
+        // Store reference for later management
+        this.launchBannerActive = true;
+    }
+    
+    shouldShowLaunchBanner() {
+        // Only show banner when:
+        // 1. Player is not airborne
+        // 2. Player has not landed (end of day)
+        // 3. Upgrade shop is not open
+        // 4. Player is not currently pulling
+        return !this.scene.isAirborne && 
+               !this.scene.isLanded && 
+               !(this.upgradeShopContainer && this.upgradeShopContainer.visible) &&
+               !this.scene.isPulling;
+    }
+    
+    updateLaunchBanner() {
+        // Show banner if conditions are met and it's not already showing
+        if (this.shouldShowLaunchBanner() && !this.launchBannerActive) {
+            this.showLaunchBanner();
+        }
+        // Hide banner if conditions are not met and it's currently showing
+        else if (!this.shouldShowLaunchBanner() && this.launchBannerActive) {
+            this.hideLaunchBanner();
+        }
+    }
+    
+    hideLaunchBanner() {
+        // Hide and destroy launch banner immediately
+        if (this.launchBanner) {
+            this.launchBannerActive = false;
+            
+            // Stop the scrolling animation
+            if (this.bannerScrollTween) {
+                this.bannerScrollTween.stop();
+                this.bannerScrollTween = null;
+            }
+            
+            // Clean up event listener
+            if (this.bannerHideListener) {
+                this.scene.input.off('pointerdown', this.bannerHideListener);
+                this.bannerHideListener = null;
+            }
+            
+            // Remove any existing fade-out tweens to prevent conflicts
+            this.scene.tweens.killTweensOf(this.launchBanner);
+            
+            // Immediate destruction for launch scenarios, fade for others
+            if (this.scene.isAirborne || this.scene.isPulling) {
+                // Immediate hide during launch/pulling
+                this.launchBanner.destroy();
+                this.launchBanner = null;
+            } else {
+                // Fade out for other scenarios (like opening upgrade shop)
                 this.scene.tweens.add({
-                    targets: [indicator, launchHighlight],
+                    targets: this.launchBanner,
                     alpha: 0,
                     duration: 200,
                     onComplete: () => {
-                        indicator.destroy();
-                        launchHighlight.destroy();
+                        if (this.launchBanner) {
+                            this.launchBanner.destroy();
+                            this.launchBanner = null;
+                        }
                     }
                 });
-                this.scene.input.off('pointerdown', hideOnPull);
             }
-        };
-        this.scene.input.on('pointerdown', hideOnPull);
+        }
     }
     
     hideLaunchReadyIndicators() {
-        // Hide and destroy launch ready indicator
-        if (this.launchReadyIndicator) {
-            this.launchReadyIndicator.setVisible(false);
-            // Optionally destroy it completely
-            this.scene.tweens.add({
-                targets: this.launchReadyIndicator,
-                alpha: 0,
-                duration: 200,
-                onComplete: () => {
-                    if (this.launchReadyIndicator) {
-                        this.launchReadyIndicator.destroy();
-                        this.launchReadyIndicator = null;
-                    }
-                }
-            });
-        }
-        
-        // Hide and destroy launch highlight
-        if (this.launchHighlight) {
-            this.launchHighlight.setVisible(false);
-            this.scene.tweens.add({
-                targets: this.launchHighlight,
-                alpha: 0,
-                duration: 200,
-                onComplete: () => {
-                    if (this.launchHighlight) {
-                        this.launchHighlight.destroy();
-                        this.launchHighlight = null;
-                    }
-                }
-            });
-        }
+        // For backward compatibility, also call the new banner hide method
+        this.hideLaunchBanner();
     }
 
     checkCloudBreach() {
@@ -1969,6 +1961,18 @@ export class UISystem {
     }
 
     openUpgradeShop() {
+        // Safety check: ensure upgrade system is properly initialized before opening shop
+        if (!this.scene.upgradeSystem || !this.scene.upgradeSystem.upgrades) {
+            console.error('Cannot open upgrade shop: UpgradeSystem not properly initialized');
+            return;
+        }
+        
+        // Debug log to help identify upgrade availability
+        console.log('Opening upgrade shop. Available upgrades:', Object.keys(this.scene.upgradeSystem.upgrades));
+        
+        // Hide launch banner when upgrade shop opens
+        this.hideLaunchBanner();
+        
         // Create comprehensive upgrade shop UI
         this.createUpgradeShopUI();
     }
@@ -2166,11 +2170,22 @@ export class UISystem {
         this.ribbonContainer = this.scene.add.container(0, 0);
         this.upgradePanel.add(this.ribbonContainer);
         
-        // Create ribbons for each upgrade
-        const upgrades = ['string', 'frame', 'spaceShip', 'rocket'];
+        // Safety check: ensure upgrade system is properly initialized
+        if (!this.scene.upgradeSystem || !this.scene.upgradeSystem.upgrades) {
+            console.error('UpgradeSystem not properly initialized when creating upgrade ribbons');
+            return;
+        }
+        
+        // Create ribbons for each upgrade that exists in the upgrade system
+        const upgrades = ['string', 'frame', 'spaceShip', 'rocket', 'magnet'];
         upgrades.forEach((key, index) => {
-            const ribbonY = ribbonStartY + (index * (ribbonHeight + ribbonSpacing));
-            this.createUpgradeRibbon(key, ribbonY, panelWidth - 40, ribbonHeight);
+            // Only create ribbon if the upgrade exists in the system
+            if (this.scene.upgradeSystem.upgrades[key]) {
+                const ribbonY = ribbonStartY + (index * (ribbonHeight + ribbonSpacing));
+                this.createUpgradeRibbon(key, ribbonY, panelWidth - 40, ribbonHeight);
+            } else {
+                console.warn(`Upgrade '${key}' not found in upgrade system, skipping ribbon creation`);
+            }
         });
         
         // Add scroll indicators if needed
@@ -2179,6 +2194,13 @@ export class UISystem {
     
     createUpgradeRibbon(upgradeKey, y, width, height) {
         const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+        
+        // Safety check: ensure upgrade exists before creating ribbon
+        if (!upgrade) {
+            console.error(`Upgrade '${upgradeKey}' not found in upgrade system`);
+            return;
+        }
+        
         const ribbonContainer = this.scene.add.container(0, y);
         this.ribbonContainer.add(ribbonContainer);
         
@@ -2403,7 +2425,8 @@ export class UISystem {
             string: '🎯',
             frame: '🛡️',
             spaceShip: '🚀',
-            rocket: '⚡'
+            rocket: '⚡',
+            magnet: '🧲'
         };
         return icons[upgradeKey] || '⚙️';
     }
@@ -2413,7 +2436,8 @@ export class UISystem {
             string: 'STRING',
             frame: 'FRAME',
             spaceShip: 'SPACE SHIP',
-            rocket: 'ROCKET'
+            rocket: 'ROCKET',
+            magnet: 'MAGNET'
         };
         return names[upgradeKey] || upgradeKey.toUpperCase();
     }
@@ -2430,6 +2454,12 @@ export class UISystem {
             case 'rocket':
                 const info = this.getRocketUpgradeInfo(upgrade);
                 return `Thrust: ${info.thrust} | Fuel: ${info.fuel}`;
+            case 'magnet':
+                if (upgrade.level === 0) {
+                    return 'No magnetic attraction';
+                } else {
+                    return `Magnetic range: ${upgrade.magneticRange}px`;
+                }
             default:
                 return 'Level ' + upgrade.level;
         }
@@ -2532,10 +2562,19 @@ export class UISystem {
             this.upgradeShopCoinsText.setText(`${this.scene.upgradeSystem.getCoins()}`);
         }
         
-        // Update each upgrade ribbon
-        const upgrades = ['string', 'frame', 'spaceShip', 'rocket'];
+        // Safety check: ensure upgrade system is properly initialized
+        if (!this.scene.upgradeSystem || !this.scene.upgradeSystem.upgrades) {
+            console.error('UpgradeSystem not properly initialized when updating shop');
+            return;
+        }
+        
+        // Update each upgrade ribbon that exists in the system
+        const upgrades = ['string', 'frame', 'spaceShip', 'rocket', 'magnet'];
         upgrades.forEach(key => {
-            this.updateUpgradeRibbon(key);
+            // Only update ribbon if the upgrade exists in the system
+            if (this.scene.upgradeSystem.upgrades[key]) {
+                this.updateUpgradeRibbon(key);
+            }
         });
     }
     
@@ -2544,6 +2583,13 @@ export class UISystem {
         if (!elements) return;
         
         const upgrade = this.scene.upgradeSystem.upgrades[upgradeKey];
+        
+        // Safety check: ensure upgrade exists before updating ribbon
+        if (!upgrade) {
+            console.error(`Upgrade '${upgradeKey}' not found in upgrade system during update`);
+            return;
+        }
+        
         const isMaxed = upgrade.level >= upgrade.maxLevel;
         const canAfford = this.scene.upgradeSystem.getCoins() >= upgrade.cost;
         
@@ -2814,6 +2860,9 @@ export class UISystem {
             // Re-enable game interactions
             this.enableGameInteractions();
             
+            // Update launch banner visibility now that shop is closed
+            this.updateLaunchBanner();
+            
             // Slide down animation
             this.scene.tweens.add({
                 targets: panelToClose,
@@ -3008,12 +3057,17 @@ export class UISystem {
     }
 
     canAffordAnyUpgrade() {
+        // Safety check: ensure upgrade system is properly initialized
+        if (!this.scene.upgradeSystem || !this.scene.upgradeSystem.upgrades) {
+            return false;
+        }
+        
         const coins = this.scene.upgradeSystem.getCoins();
         const upgrades = this.scene.upgradeSystem.upgrades;
         
         for (const key in upgrades) {
             const upgrade = upgrades[key];
-            if (upgrade.level < upgrade.maxLevel && coins >= upgrade.cost) {
+            if (upgrade && upgrade.level < upgrade.maxLevel && coins >= upgrade.cost) {
                 return true;
             }
         }

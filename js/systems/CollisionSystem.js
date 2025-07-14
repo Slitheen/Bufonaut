@@ -58,6 +58,20 @@ export class CollisionSystem {
                 verticalRadius: 35    // Vertical collision radius
             }
         };
+
+        // Magnetic attraction settings
+        this.magneticAttraction = {
+            enabled: true,
+            attractionForce: 600, // Pixels per second attraction speed (increased from 300)
+            maxAttractionDistance: 150, // Maximum distance for magnetic attraction
+            updateInterval: 50 // Update magnetic attraction every 50ms
+        };
+        
+        // Initialize magnetic attraction timer
+        this.lastMagneticUpdate = 0;
+        
+        // Track objects currently under magnetic influence
+        this.magneticallyAffectedObjects = new Set();
     }
     
     // Clear all collision cooldowns (called when restarting day)
@@ -65,6 +79,12 @@ export class CollisionSystem {
         this.collisionCooldowns.clear();
         this.launchProtectionActive = false;
         console.log('Collision cooldowns cleared');
+    }
+    
+    // Clear all magnetic effects when player lands or game resets
+    clearMagneticEffects() {
+        this.magneticallyAffectedObjects.clear();
+        console.log('Magnetic effects cleared');
     }
 
     // Start launch protection (called when player is launched)
@@ -283,6 +303,9 @@ export class CollisionSystem {
         // Add bounce visual effect
         this.addBounceEffect(player.x, player.y);
         
+        // NEW: Award coin for hitting balloon
+        this.awardAssetCoin(player, 'balloon');
+        
         this.debugLog(`Balloon hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'balloon_hit');
     }
 
@@ -376,6 +399,9 @@ export class CollisionSystem {
         // Add bounce visual effect
         this.addBounceEffect(player.x, player.y);
         
+        // NEW: Award coin for hitting bird
+        this.awardAssetCoin(player, 'bird');
+        
         this.debugLog(`Bird hit! Velocity change: Y=${(player.body.velocity.y - originalVelocityY).toFixed(1)}, X=${(player.body.velocity.x - originalVelocityX).toFixed(1)}`, 'bird_hit');
     }
 
@@ -410,6 +436,9 @@ export class CollisionSystem {
         
         // Add a visual effect to show the slowdown
         this.addSlowdownEffect(player.x, player.y);
+        
+        // NEW: Award coin for hitting cloud
+        this.awardAssetCoin(player, 'cloud');
         
         this.debugLog(`Cloud hit! Velocity reduced by ${((1 - slowdownFactor) * 100).toFixed(1)}%`, 'cloud_hit');
     }
@@ -505,10 +534,26 @@ export class CollisionSystem {
     }
 
     hitCoin(player, coin) {
-        // Enhanced spatial validation using 2D elliptical bounds
-        if (!this.validateSpatialCollision(player, coin, 'coin')) {
-            this.debugLog(`Coin collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, CoinX: ${coin.x.toFixed(1)}, CoinY: ${coin.y.toFixed(1)}`, 'coin_spatial_reject');
-            return;
+        // Check if this coin is being magnetically attracted
+        const targetId = coin.name || coin.texture.key + '_' + coin.x + '_' + coin.y;
+        const isMagneticallyAttracted = this.magneticallyAffectedObjects.has(targetId);
+        
+        // Use more lenient collision detection for magnetically attracted coins
+        if (isMagneticallyAttracted) {
+            // For magnetically attracted coins, use a simpler distance check
+            const distance = Phaser.Math.Distance.Between(player.x, player.y, coin.x, coin.y);
+            const collectionDistance = 60; // Slightly larger than normal collision radius
+            
+            if (distance > collectionDistance) {
+                this.debugLog(`Magnetically attracted coin too far: distance=${distance.toFixed(1)}`, 'coin_magnetic_too_far');
+                return;
+            }
+        } else {
+            // For non-magnetically attracted coins, use normal spatial validation
+            if (!this.validateSpatialCollision(player, coin, 'coin')) {
+                this.debugLog(`Coin collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, CoinX: ${coin.x.toFixed(1)}, CoinY: ${coin.y.toFixed(1)}`, 'coin_spatial_reject');
+                return;
+            }
         }
         
         // Add coins to the player's total
@@ -531,11 +576,45 @@ export class CollisionSystem {
         this.addCoinEffect(player.x, player.y);
     }
 
-    hitGasTank(player, gasTank) {
-        // Enhanced spatial validation using 2D elliptical bounds
-        if (!this.validateSpatialCollision(player, gasTank, 'gasTank')) {
-            this.debugLog(`Gas tank collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, GasTankX: ${gasTank.x.toFixed(1)}, GasTankY: ${gasTank.y.toFixed(1)}`, 'gasTank_spatial_reject');
+    // NEW: Award coin for hitting any asset during flight
+    awardAssetCoin(player, assetType) {
+        // Only award coins if player is airborne and has been launched (during actual gameplay)
+        if (!this.scene.isAirborne || !this.scene.hasBeenLaunched) {
             return;
+        }
+        
+        // Award 1 coin for asset hit
+        const coinsEarned = 1;
+        this.scene.upgradeSystem.addCoins(coinsEarned);
+        this.scene.uiSystem.ui.coinsText.setText(this.scene.upgradeSystem.getCoins());
+        
+        // Add a small visual effect to show coin earned
+        this.addAssetCoinEffect(player.x, player.y);
+        
+        this.debugLog(`Asset hit! +${coinsEarned} coin for hitting ${assetType}. Total: ${this.scene.upgradeSystem.getCoins()}`, 'asset_coin_earned');
+    }
+
+    hitGasTank(player, gasTank) {
+        // Check if this gas tank is being magnetically attracted
+        const targetId = gasTank.name || gasTank.texture.key + '_' + gasTank.x + '_' + gasTank.y;
+        const isMagneticallyAttracted = this.magneticallyAffectedObjects.has(targetId);
+        
+        // Use more lenient collision detection for magnetically attracted gas tanks
+        if (isMagneticallyAttracted) {
+            // For magnetically attracted gas tanks, use a simpler distance check
+            const distance = Phaser.Math.Distance.Between(player.x, player.y, gasTank.x, gasTank.y);
+            const collectionDistance = 55; // Slightly larger than normal collision radius
+            
+            if (distance > collectionDistance) {
+                this.debugLog(`Magnetically attracted gas tank too far: distance=${distance.toFixed(1)}`, 'gasTank_magnetic_too_far');
+                return;
+            }
+        } else {
+            // For non-magnetically attracted gas tanks, use normal spatial validation
+            if (!this.validateSpatialCollision(player, gasTank, 'gasTank')) {
+                this.debugLog(`Gas tank collision rejected - outside 2D bounds: PlayerX: ${player.x.toFixed(1)}, PlayerY: ${player.y.toFixed(1)}, GasTankX: ${gasTank.x.toFixed(1)}, GasTankY: ${gasTank.y.toFixed(1)}`, 'gasTank_spatial_reject');
+                return;
+            }
         }
         
         // Refill fuel if player has a rocket
@@ -560,6 +639,9 @@ export class CollisionSystem {
         
         // Add a visual effect to show the gas tank collection
         this.addGasTankEffect(player.x, player.y);
+        
+        // NEW: Award coin for hitting gas tank
+        this.awardAssetCoin(player, 'gas tank');
     }
 
     addCoinEffect(x, y) {
@@ -595,6 +677,43 @@ export class CollisionSystem {
             duration: 400,
             ease: 'Power1',
             onComplete: () => gasTankEffect.destroy()
+        });
+    }
+
+    addAssetCoinEffect(x, y) {
+        // Create a small coin effect for asset hits (smaller than regular coin pickups)
+        const assetCoinEffect = this.scene.add.graphics()
+            .lineStyle(1, 0xFFD700, 0.6) // Gold color, thinner line
+            .strokeCircle(x, y, 15); // Smaller radius than regular coin effect
+        
+        // Add a small "+" text to show coin earned
+        const coinText = this.scene.add.text(x, y - 20, '+1', {
+            fontSize: '16px',
+            fill: '#FFD700',
+            stroke: '#000000',
+            strokeThickness: 1,
+            fontWeight: 'bold'
+        }).setOrigin(0.5);
+        
+        // Animate the effect (shorter duration than regular coin)
+        this.scene.tweens.add({
+            targets: assetCoinEffect,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            alpha: 0,
+            duration: 200,
+            ease: 'Power1',
+            onComplete: () => assetCoinEffect.destroy()
+        });
+        
+        // Animate the coin text
+        this.scene.tweens.add({
+            targets: coinText,
+            y: y - 40,
+            alpha: 0,
+            duration: 300,
+            ease: 'Power1',
+            onComplete: () => coinText.destroy()
         });
     }
 
@@ -653,6 +772,149 @@ export class CollisionSystem {
             this.scene.player.body.setVelocityX(0);
             this.scene.player.body.setVelocityY(0);
             this.debugLog('Stabilizing player on ground', 'stabilize_player');
+        }
+    }
+
+    // NEW: Magnetic attraction system for coins and gas tanks
+    updateMagneticAttraction() {
+        // Safety check: ensure upgradeSystem exists and has the required methods
+        if (!this.scene.upgradeSystem || 
+            typeof this.scene.upgradeSystem.hasMagnet !== 'function' || 
+            typeof this.scene.upgradeSystem.getMagnetRange !== 'function') {
+            return;
+        }
+        
+        // Only apply magnetic attraction if player has magnet upgrade and is airborne
+        if (!this.scene.upgradeSystem.hasMagnet() || !this.scene.isAirborne) {
+            return;
+        }
+        
+        const currentTime = Date.now();
+        if (currentTime - this.lastMagneticUpdate < this.magneticAttraction.updateInterval) {
+            return;
+        }
+        this.lastMagneticUpdate = currentTime;
+        
+        const player = this.scene.player;
+        const magnetRange = this.scene.upgradeSystem.getMagnetRange();
+        
+        if (magnetRange <= 0) {
+            return;
+        }
+        
+        // Apply magnetic attraction to coins
+        if (this.scene.objectSpawner && this.scene.objectSpawner.coins) {
+            this.scene.objectSpawner.coins.children.entries.forEach(coin => {
+                if (coin.active && coin.visible) {
+                    this.applyMagneticAttraction(player, coin, magnetRange);
+                }
+            });
+        }
+        
+        // Apply magnetic attraction to gas tanks
+        if (this.scene.objectSpawner && this.scene.objectSpawner.gasTanks) {
+            this.scene.objectSpawner.gasTanks.children.entries.forEach(gasTank => {
+                if (gasTank.active && gasTank.visible) {
+                    this.applyMagneticAttraction(player, gasTank, magnetRange);
+                }
+            });
+        }
+    }
+    
+    applyMagneticAttraction(player, target, magnetRange) {
+        // Safety check: ensure target has a body before applying magnetic attraction
+        if (!target.body) {
+            return;
+        }
+        
+        const distance = Phaser.Math.Distance.Between(player.x, player.y, target.x, target.y);
+        const targetId = target.name || target.texture.key + '_' + target.x + '_' + target.y;
+        
+        // Check if within magnetic range
+        if (distance <= magnetRange && distance > 0) {
+            // Calculate attraction force based on distance (closer = stronger)
+            const attractionStrength = Math.min(1, (magnetRange - distance) / magnetRange);
+            const attractionForce = this.magneticAttraction.attractionForce * attractionStrength;
+            
+            // Calculate direction towards player
+            const angle = Phaser.Math.Angle.Between(target.x, target.y, player.x, player.y);
+            const velocityX = Math.cos(angle) * attractionForce;
+            const velocityY = Math.sin(angle) * attractionForce;
+            
+            // Apply magnetic attraction velocity
+            target.body.setVelocity(velocityX, velocityY);
+            
+            // Mark this object as being magnetically affected
+            this.magneticallyAffectedObjects.add(targetId);
+            
+            // Add visual effect to show magnetic attraction
+            if (Math.random() < 0.1) { // 10% chance per frame to show effect
+                this.addMagneticEffect(target.x, target.y, player.x, player.y);
+            }
+        } else {
+            // Object is outside magnetic range
+            if (this.magneticallyAffectedObjects.has(targetId)) {
+                // Reset velocity to stop the object from continuing to drift
+                target.body.setVelocity(0, 0);
+                
+                // Remove from magnetically affected objects
+                this.magneticallyAffectedObjects.delete(targetId);
+                
+                // Restore original floating animation for coins and gas tanks
+                this.restoreOriginalMovement(target);
+            }
+        }
+    }
+    
+    addMagneticEffect(fromX, fromY, toX, toY) {
+        // Create a small particle effect showing magnetic attraction
+        const magnetLine = this.scene.add.graphics()
+            .lineStyle(1, 0x00FFFF, 0.3) // Cyan color, semi-transparent
+            .lineBetween(fromX, fromY, toX, toY);
+        
+        // Animate the magnetic line
+        this.scene.tweens.add({
+            targets: magnetLine,
+            alpha: 0,
+            duration: 200,
+            ease: 'Power1',
+            onComplete: () => magnetLine.destroy()
+        });
+    }
+    
+    restoreOriginalMovement(target) {
+        // Restore original floating animation for coins and gas tanks
+        if (!target || !target.active || !target.visible) {
+            return;
+        }
+        
+        // Stop any existing movement first
+        target.body.setVelocity(0, 0);
+        
+        // Kill any existing tweens on this target
+        this.scene.tweens.killTweensOf(target);
+        
+        // Determine what type of object this is and restore appropriate movement
+        const textureKey = target.texture.key;
+        
+        if (textureKey === 'coin') {
+            // Coins should remain stationary after magnetic attraction ends
+            // They don't have original floating animations
+            target.body.setVelocity(0, 0);
+        } else if (textureKey === 'gas_tank') {
+            // Gas tanks have floating animations - restore them
+            const currentY = target.y;
+            const animationRange = 12; // Same as original animation
+            
+            this.scene.tweens.add({
+                targets: target,
+                y: currentY - animationRange,
+                duration: Phaser.Math.Between(2500, 3500),
+                ease: 'sine.inOut',
+                yoyo: true,
+                repeat: -1,
+                useRadians: true
+            });
         }
     }
     

@@ -61,6 +61,7 @@ export class GameScene extends Phaser.Scene {
         this.load.image('upgrade_frame', 'assets/upgrade_frame.png');
         this.load.image('upgrade_ship', 'assets/upgrade_ship.png');
         this.load.image('upgrade_rocket', 'assets/upgrade_rocket.png');
+        this.load.image('Magnet', 'assets/Magnet.png');
         
         // Load seamless world background with cache-busting
         const backgroundVersion = Date.now(); // Use timestamp for cache-busting
@@ -138,7 +139,7 @@ export class GameScene extends Phaser.Scene {
             'bufo', 'bufo_failed', 'bufo_rocket', 'balloon', 'balloon_2', 'birds', 'birds_2',
             'hot_air_balloon', 'plane', 'satellite', 'martian', 'coin', 'gas_tank',
             'cloud', 'cloud_2', 'cloud_3', 'cloud_4', 'cloud_5', 'cloud_6', 'cloud_7',
-            'upgrade_string', 'upgrade_frame', 'upgrade_ship', 'upgrade_rocket',
+            'upgrade_string', 'upgrade_frame', 'upgrade_ship', 'upgrade_rocket', 'Magnet',
             'world_background'
         ];
         
@@ -231,6 +232,16 @@ export class GameScene extends Phaser.Scene {
             this.uiSystem.updateDebugHitboxes();
         }
 
+        // Update launch banner visibility
+        if (frameCount % 30 === 0) { // Check every 30 frames (twice per second)
+            this.uiSystem.updateLaunchBanner();
+        }
+
+        // NEW: Update magnetic attraction for coins and gas tanks
+        if (frameCount % 3 === 0) { // Update every 3 frames for smooth attraction
+            this.collisionSystem.updateMagneticAttraction();
+        }
+
         if (this.isAirborne) {
             // Check for cloud breach before camera tracking
             this.uiSystem.checkCloudBreach();
@@ -261,6 +272,11 @@ export class GameScene extends Phaser.Scene {
             // Check zone changes
             if (this.time.now % GAME_CONSTANTS.PERFORMANCE.ZONE_CHECK_FREQUENCY === 0) {
                 this.objectSpawner.checkAltitudeZoneChange();
+            }
+
+            // NEW: Handle asset cycling to maintain continuous asset flow
+            if (this.time.now % 200 === 0) { // Check every 200ms for smooth cycling
+                this.objectSpawner.cycleOffScreenAssets();
             }
 
             // Update fuel gauge less frequently
@@ -481,6 +497,9 @@ export class GameScene extends Phaser.Scene {
         this.player.setAngle(0); // Reset rotation when landing
         this.launchZoneIndicator.clear();
         
+        // Clear magnetic effects when landing
+        this.collisionSystem.clearMagneticEffects();
+        
         // Hide fuel gauge when landing
         this.uiSystem.hideFuelGauge();
         
@@ -636,6 +655,12 @@ export class GameScene extends Phaser.Scene {
             console.log(`${upgrade.name} upgraded to Level ${upgrade.level}! New power: ${upgrade.power.toFixed(1)}`);
         }
         
+        // Handle magnet upgrade
+        if (key === 'magnet') {
+            const upgrade = this.upgradeSystem.upgrades[key];
+            console.log(`${upgrade.name} upgraded to Level ${upgrade.level}! Magnetic range: ${upgrade.magneticRange}px`);
+        }
+        
         // Update UI elements to reflect upgrade changes
         this.uiSystem.updateUpgradeUI();
         this.uiSystem.updateLauncherVisualization();
@@ -651,14 +676,17 @@ export class GameScene extends Phaser.Scene {
         // Clear collision cooldowns for fresh collision detection
         this.collisionSystem.clearCooldowns();
         
+        // Clear magnetic effects for fresh magnetic attraction
+        this.collisionSystem.clearMagneticEffects();
+        
         // Reset input state to prevent glitch where game launches automatically
         this.input.keyboard.resetKeys();
         // Set a flag to prevent immediate launches after restart
         this.justRestarted = true;
         this.time.delayedCall(500, () => {
             this.justRestarted = false;
-            // Show launch readiness indicator after restart delay
-            this.uiSystem.showLaunchReadyIndicator();
+            // Show launch banner after restart delay
+            this.uiSystem.showLaunchBanner();
         });
 
         this.isLanded = false;

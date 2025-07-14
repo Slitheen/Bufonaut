@@ -1,5 +1,5 @@
 // Game Configuration and Constants
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.7';
 
 export const UI_THEME = {
     primary: '#4A90E2',      // Modern blue
@@ -69,7 +69,7 @@ export const GAME_CONSTANTS = {
     },
     PERFORMANCE: {
         UPDATE_FREQUENCY: 1,
-        ZONE_CHECK_FREQUENCY: 10, // Check every 10 frames (reduced for better performance)
+        ZONE_CHECK_FREQUENCY: 3, // Check every 3 frames for much more responsive spawning
         ROTATION_FREQUENCY: 8, // Increased for smoother rotation at 144 FPS
         CAMERA_SMOOTHING: 0.12, // Slightly increased for smoother camera at 144 FPS
         MAX_ACTIVE_OBJECTS: 300, // Increased from 200 to 300 to accommodate more objects across zones
