@@ -1085,8 +1085,8 @@ export class ObjectSpawner {
             
             this.currentAltitudeZone = currentZone.name;
             
-            // Show zone transition notification
-            this.scene.showZoneTransition(currentZone.name);
+            // Show zone transition notification (DISABLED)
+            // this.scene.showZoneTransition(currentZone.name);
             
             // Schedule transition end after brief period for asset adjustment
             this.scene.time.delayedCall(1500, () => {

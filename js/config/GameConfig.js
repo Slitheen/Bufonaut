@@ -1,5 +1,5 @@
 // Game Configuration and Constants
-export const VERSION = '1.1.7';
+export const VERSION = '1.1.8';
 
 export const UI_THEME = {
     primary: '#4A90E2',      // Modern blue
